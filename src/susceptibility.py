@@ -1,8 +1,10 @@
 import pyscf.scf
 import pyscf.gto
 import pyscf.dft
+import pyscf.qmmm
 import numpy as np
 import numpy.linalg as npl
+import tqdm
 
 
 class Susceptibility:
@@ -10,12 +12,26 @@ class Susceptibility:
 
     def __init__(self, mol, calc):
         self._mol = mol
-        self._calc = calc(mol)
+        self._calc = calc
         self._q = 0.01
         self._grid = pyscf.dft.gen_grid.Grids(self._mol)
         self._grid.level = 3
         self._grid.build()
         self._ao_value = pyscf.dft.numint.eval_ao(self._mol, self._grid.coords, deriv=0)
+        calc = self._calc(self._mol)
+        calc.kernel()
+        self._center = calc.energy_elec()[0]
+
+    def get_energy_derivative(self, pos):
+        up = pyscf.qmmm.mm_charge(
+            self._calc(self._mol), np.array((pos,)), np.array((self._q,))
+        )
+        up.kernel()
+        dn = pyscf.qmmm.mm_charge(
+            self._calc(self._mol), np.array((pos,)), np.array((-self._q,))
+        )
+        dn.kernel()
+        return up.energy_elec()[0] + dn.energy_elec()[0] - 2 * self._center
 
     def get_derivative(self, pos: np.ndarray):
         # beta_k, beta_l
@@ -25,15 +41,14 @@ class Susceptibility:
         integrals = np.dot(self._ao_value.T, combined.T)
         B_j = np.outer(integrals, integrals).reshape(-1)
 
-        D_j = 5
-        # TODO: fix
+        D_j = self.get_energy_derivative(pos)
 
         return D_j, B_j
 
     def build_susceptibility(self, coords: np.ndarray):
         D = []
         B = []
-        for coord in coords:
+        for coord in tqdm.tqdm(coords):
             D_j, B_j = self.get_derivative(coord)
             D.append(D_j)
             B.append(B_j)
@@ -57,7 +72,7 @@ if __name__ == "__main__":
     )
 
     # regression grid
-    N = 50
+    N = 100
     coords = np.zeros((N, 3))
     coords[:, 0] = np.linspace(0.1, 5, N)
 
