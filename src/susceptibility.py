@@ -63,6 +63,28 @@ class Susceptibility:
         return np.sum(self._Q * np.outer(beta_k, beta_l))
 
 
+# ---=== Below this line, Szabi is experimenting. Excuse him! ===---
+
+    def get_alpha_matrices(self, coord, ii):
+        dB = pyscf.dft.numint.eval_ao(self._mol, self._grid.coords, deriv=1)[ii+1,:,:] # ii=0 is the value of the basis functions, ii=1 is the x derivative, etc.
+        dB_j = np.outer(dB, dB).reshape(-1)
+        return dB_j
+
+    def build_polarizability(self, coords: np.ndarray):
+        A = []
+        for ii in range(len(2)):
+            dB = []
+            for coord in tqdm.tqdm(coords):
+                dB_j = self.get_alpha_matrices(coord, ii)
+                dB.append(dB_j)
+            dB = np.array(dB)
+            A_i = npl.lstsq(dB, self._D)[0].reshape(self._mol.nbas, self._mol.nbas)
+            A.append[A_i]
+        self._A = np.array[A] 
+
+# ---=== Experiment over ---===
+
+
 if __name__ == "__main__":
     # define molecule
     mol = pyscf.gto.M(
