@@ -72,7 +72,7 @@ class Susceptibility:
 
     def build_polarizability(self, coords: np.ndarray):
         A = []
-        for ii in range(len(2)):
+        for ii in [1,2,3]:
             dB = []
             for coord in tqdm.tqdm(coords):
                 dB_j = self.get_alpha_matrices(coord, ii)
