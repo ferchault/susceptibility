@@ -34,13 +34,11 @@ class Susceptibility:
         return up.energy_elec()[0] + dn.energy_elec()[0] - 2 * self._center
 
     def get_derivative(self, pos: np.ndarray):
-        # beta_k, beta_l
         d = np.linalg.norm(self._grid.coords - pos, axis=1)
-        combined = self._grid.weights / d
+        combined = self._q * self._grid.weights / d
 
         integrals = np.dot(self._ao_value.T, combined.T)
         B_j = np.outer(integrals, integrals).reshape(-1)
-
         D_j = self.get_energy_derivative(pos)
 
         return D_j, B_j
@@ -56,7 +54,7 @@ class Susceptibility:
         B = np.array(B)
         self._Q = npl.lstsq(B, D)[0].reshape(self._mol.nbas, self._mol.nbas)
 
-    def query(self, r: np.ndarray, rprime: np.ndarray) -> float:
+    def evaluate(self, r: np.ndarray, rprime: np.ndarray) -> float:
         coords = np.array((r, rprime))
         beta_k, beta_l = pyscf.dft.numint.eval_ao(self._mol, coords, deriv=0)
 
@@ -80,4 +78,4 @@ if __name__ == "__main__":
     s = Susceptibility(mol, pyscf.scf.RHF)
     s.build_susceptibility(coords)
 
-    print(s.query(np.array((0, 0, 0)), np.array((0, 0, 0.1))))
+    print(s.evaluate(np.array((0, 0, 0)), np.array((0, 0, 0.1))))
