@@ -6,6 +6,7 @@ import numpy as np
 import itertools as it
 import numpy.linalg as npl
 import tqdm
+import sys
 
 
 class ResponseCalculator:
@@ -48,14 +49,21 @@ class ResponseCalculator:
     def build_susceptibility(self, coords: np.ndarray):
         D = []
         B = []
-        for coord in tqdm.tqdm(coords):
+
+        if len(coords) < self._mol.nao:
+            print("Would be underdetermined. Aborting.")
+            sys.exit(1)
+        for coord in tqdm.tqdm(coords, desc="Chi", leave=False):
             D_j, B_j = self.get_derivative(coord)
             D.append(D_j)
             B.append(B_j)
         D = np.array(D)
         B = np.array(B)
 
-        self._Q = npl.lstsq(B, D, rcond=None)[0].reshape(self._mol.nao, self._mol.nao)
+        lstsq = npl.lstsq(B, D, rcond=None)
+        res = (np.sqrt((D - B @ lstsq[0]) ** 2).mean()) / np.abs(D).mean()
+        print(f"Chi:   Average relative residual {res*100:8.3f} %")
+        self._Q = lstsq[0].reshape(self._mol.nao, self._mol.nao)
 
     def evaluate_susceptibility(self, r: np.ndarray, rprime: np.ndarray) -> float:
         coords = np.array((r, rprime))
@@ -69,17 +77,27 @@ class ResponseCalculator:
             self._mol, coords, deriv=1
         )  # [0, x, y, z]:[pts]:[nao]
 
+        ncoords = len(coords)
         for i, j in it.product(range(3), range(3)):
             B = []
             D = []
-            for r, rprime in it.product(range(len(coords)), range(len(coords))):
+            label = f"A_{i},{j}"
+            for r, rprime in tqdm.tqdm(
+                it.product(range(ncoords), range(ncoords)),
+                total=ncoords**2,
+                desc=label,
+                leave=False,
+            ):
                 D.append(self.evaluate_susceptibility(coords[r], coords[rprime]))
 
                 left = derivs[i + 1, r, :]
                 right = derivs[j + 1, rprime, :]
                 B.append(np.outer(left, right).reshape(-1))
 
-            A = npl.lstsq(B, D, rcond=None)[0].reshape(self._mol.nao, self._mol.nao)
+            lstsq = npl.lstsq(B, D, rcond=None)
+            res = (np.sqrt((D - B @ lstsq[0]) ** 2).mean()) / np.abs(D).mean()
+            print(f"{label}: Average relative residual {res*100:8.3f} %")
+            A = lstsq[0].reshape(self._mol.nao, self._mol.nao)
             self._A[i, j, :, :] = A
 
     def evaluate_polarizability(self, r: np.ndarray, rprime: np.ndarray) -> float:
@@ -92,16 +110,16 @@ class ResponseCalculator:
 if __name__ == "__main__":
     # define molecule
     mol = pyscf.gto.M(
-        atom=f"He 0 0 0",
-        # atom=f"N 0 0 0; N 0 0 1",
-        basis="6-31G",
+        # atom=f"He 0 0 0",
+        atom=f"N 0 0 0; N 0 0 1",
+        basis="def2-TZVP",
         verbose=0,
     )
 
     # regression grid
     N = 110
     coords = np.zeros((N, 3))
-    coords[:, 0] = np.linspace(0.1, 5, N)
+    coords[:, 2] = np.linspace(0.1, 5, N)
 
     # collect data
     rc = ResponseCalculator(mol, pyscf.scf.RHF)
