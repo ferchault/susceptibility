@@ -3,11 +3,12 @@ import pyscf.gto
 import pyscf.dft
 import pyscf.qmmm
 import numpy as np
+import itertools as it
 import numpy.linalg as npl
 import tqdm
 
 
-class Susceptibility:
+class ResponseCalculator:
     """Implements a generalized case of 10.1021/ct1004577, section 2."""
 
     def __init__(self, mol, calc):
@@ -17,7 +18,6 @@ class Susceptibility:
         self._grid = pyscf.dft.gen_grid.Grids(self._mol)
         self._grid.level = 1
         self._grid.build()
-        self._ao_value = pyscf.dft.numint.eval_ao(self._mol, self._grid.coords, deriv=0)
         calc = self._calc(self._mol)
         calc.kernel()
         self._center = calc.energy_elec()[0]
@@ -34,10 +34,12 @@ class Susceptibility:
         return up.energy_elec()[0] + dn.energy_elec()[0] - 2 * self._center
 
     def get_derivative(self, pos: np.ndarray):
-        d = np.linalg.norm(self._grid.coords - pos, axis=1)
+        coords = self._grid.coords - pos
+        d = np.linalg.norm(coords, axis=1)
         combined = self._q * self._grid.weights / d
 
-        integrals = np.dot(self._ao_value.T, combined.T)
+        ao_value = pyscf.dft.numint.eval_ao(self._mol, coords, deriv=0)
+        integrals = np.dot(ao_value.T, combined.T)
         B_j = np.outer(integrals, integrals).reshape(-1)
         D_j = self.get_energy_derivative(pos)
 
@@ -50,68 +52,67 @@ class Susceptibility:
             D_j, B_j = self.get_derivative(coord)
             D.append(D_j)
             B.append(B_j)
-        self._D = np.array(D)
+        D = np.array(D)
         B = np.array(B)
-        print("shape of B: ", B.shape)
-        print("shape of D: ", self._D.shape)
-        self._Q = npl.lstsq(B, self._D)[0].reshape(self._mol.nbas, self._mol.nbas)
 
-    def evaluate(self, r: np.ndarray, rprime: np.ndarray) -> float:
+        self._Q = npl.lstsq(B, D, rcond=None)[0].reshape(self._mol.nao, self._mol.nao)
+
+    def evaluate_susceptibility(self, r: np.ndarray, rprime: np.ndarray) -> float:
         coords = np.array((r, rprime))
         beta_k, beta_l = pyscf.dft.numint.eval_ao(self._mol, coords, deriv=0)
 
         return np.sum(self._Q * np.outer(beta_k, beta_l))
 
-    # ---=== Below this line, Szabi is experimenting. Excuse him! ===---
-
-    def get_alpha_matrices(self, coord, ii):
-        dB = pyscf.dft.numint.eval_ao(self._mol, self._grid.coords, deriv=1)[
-            ii + 1, :, :
-        ]  # ii=0 is the value of the basis functions, ii=1 is the x derivative, etc.
-        dB_j = np.dot(dB, dB)
-        return dB_j
-
     def build_polarizability(self, coords: np.ndarray):
-        A = []
-        for ii in [1, 2, 3]:
-            dB = []
-            for coord in tqdm.tqdm(coords):
-                dB_j = self.get_alpha_matrices(coord, ii)
-                dB.append(dB_j)
-            dB = np.array(dB)
-            print("shape of dB: ", dB.shape)
-            print("shape of D: ", self._D.shape)
-            A_i = npl.lstsq(dB, self._D)[0].reshape(self._mol.nbas, self._mol.nbas)
-            A.append[A_i]
-        self._A = np.array[A]
+        self._A = np.zeros((3, 3, self._mol.nao, self._mol.nao))
+        derivs = pyscf.dft.numint.eval_ao(
+            self._mol, coords, deriv=1
+        )  # [0, x, y, z]:[pts]:[nao]
 
-    def alpha_query(self, r: np.ndarray, rprime: np.ndarray, ii) -> float:
+        for i, j in it.product(range(3), range(3)):
+            B = []
+            D = []
+            for r, rprime in it.product(range(len(coords)), range(len(coords))):
+                D.append(self.evaluate_susceptibility(coords[r], coords[rprime]))
+
+                left = derivs[i + 1, r, :]
+                right = derivs[j + 1, rprime, :]
+                B.append(np.outer(left, right).reshape(-1))
+
+            A = npl.lstsq(B, D, rcond=None)[0].reshape(self._mol.nao, self._mol.nao)
+            self._A[i, j, :, :] = A
+
+    def evaluate_polarizability(self, r: np.ndarray, rprime: np.ndarray) -> float:
         coords = np.array((r, rprime))
-        beta_k, beta_l = pyscf.dft.numint.eval_ao(self._mol, coords, deriv=1)[
-            ii + 1, :, :
-        ]
+        beta_k, beta_l = pyscf.dft.numint.eval_ao(self._mol, coords, deriv=0)
 
-        return np.sum(self._A[ii] * np.outer(beta_k, beta_l))
-
-
-# ---=== Experiment over ---===
+        return np.sum(self._A * np.outer(beta_k, beta_l), axis=(2, 3))
 
 
 if __name__ == "__main__":
     # define molecule
     mol = pyscf.gto.M(
         atom=f"He 0 0 0",
+        # atom=f"N 0 0 0; N 0 0 1",
         basis="6-31G",
         verbose=0,
     )
 
     # regression grid
-    N = 45
+    N = 110
     coords = np.zeros((N, 3))
     coords[:, 0] = np.linspace(0.1, 5, N)
 
     # collect data
-    s = Susceptibility(mol, pyscf.scf.RHF)
-    s.build_susceptibility(coords)
+    rc = ResponseCalculator(mol, pyscf.scf.RHF)
+    rc.build_susceptibility(coords)
+    rc.build_polarizability(coords)
 
-    print(s.evaluate(np.array((0, 0, 0)), np.array((0, 0, 0.1))))
+    print(
+        "chitest",
+        rc.evaluate_susceptibility(np.array((0, 0, 0)), np.array((0, 0, 0.1))),
+    )
+    print(
+        "alphatest",
+        rc.evaluate_polarizability(np.array((0, 0, 0)), np.array((0, 0, 0.1))),
+    )
