@@ -7,7 +7,10 @@ import itertools as it
 import numpy.linalg as npl
 import tqdm
 import sys
+from scipy import integrate
 
+def transformed_coulomb(s, coord, pos):
+    return np.exp(-s**2 * np.linalg.norm(coord-pos)**2)
 
 class ResponseCalculator:
     """Implements a generalized case of 10.1021/ct1004577, section 2."""
@@ -15,9 +18,9 @@ class ResponseCalculator:
     def __init__(self, mol, calc):
         self._mol = mol
         self._calc = calc
-        self._q = 0.01
+        self._q = 0.001
         self._grid = pyscf.dft.gen_grid.Grids(self._mol)
-        self._grid.level = 1
+        self._grid.level = 2
         self._grid.build()
         calc = self._calc(self._mol)
         calc.kernel()
@@ -34,6 +37,7 @@ class ResponseCalculator:
         dn.kernel()
         return up.energy_elec()[0] + dn.energy_elec()[0] - 2 * self._center
 
+
     def get_derivative(self, pos: np.ndarray):
         coords = self._grid.coords - pos
         d = np.linalg.norm(coords, axis=1)
@@ -41,6 +45,21 @@ class ResponseCalculator:
 
         ao_value = pyscf.dft.numint.eval_ao(self._mol, coords, deriv=0)
         integrals = np.dot(ao_value.T, combined.T)
+
+        # alternative integral scheme
+
+        #weights = self._q * self._grid.weights * 2.0 / np.sqrt(np.pi) 
+        #b_integral= []
+        #for ii in range(len(self._grid.coords)):
+        #    b_integral.append( integrate.quad(transformed_coulomb, 0.0, np.inf, args=(self._grid.coords[ii], pos))[0] )
+        #weights = weights * b_integral
+        #integral2 = np.dot(ao_value.T, weights.T)
+
+        # compare the two integrals
+        #print("new integral: ",integral2)
+        #print("old integral: ",integrals)
+
+
         B_j = np.outer(integrals, integrals).reshape(-1)
         D_j = self.get_energy_derivative(pos)
 
@@ -59,6 +78,7 @@ class ResponseCalculator:
             B.append(B_j)
         D = np.array(D)
         B = np.array(B)
+        print(B.shape)
 
         lstsq = npl.lstsq(B, D, rcond=None)
         res = (np.sqrt((D - B @ lstsq[0]) ** 2).mean()) / np.abs(D).mean()
@@ -106,31 +126,48 @@ class ResponseCalculator:
 
         return np.sum(self._A * np.outer(beta_k, beta_l), axis=(2, 3))
 
+    def get_ao_integrals(self) -> float:
+        coord = np.random.random((1,3))
+        nr_of_aos = pyscf.dft.numint.eval_ao(self._mol, coord, deriv=0).shape[1]
+        basis_set_values = pyscf.dft.numint.eval_ao(self._mol, self._grid.coords, deriv=0)
+        ao_integrals = np.dot(self._grid.weights.T, basis_set_values)
+        return ao_integrals
+
 
 if __name__ == "__main__":
     # define molecule
     mol = pyscf.gto.M(
-        # atom=f"He 0 0 0",
-        atom=f"N 0 0 0; N 0 0 1",
-        basis="def2-TZVP",
+        atom=f"He 0 0 0",
+        #atom=f"N 0 0 0; N 0 0 1",
+        #basis="def2-TZVP",
+        basis="unc-aug-cc-pVTZ",
         verbose=0,
     )
 
+    grid = pyscf.dft.gen_grid.Grids(mol)
+    grid.level = 1
+    grid.build()
+
     # regression grid
-    N = 110
+    N = 51
     coords = np.zeros((N, 3))
     coords[:, 2] = np.linspace(0.1, 5, N)
 
     # collect data
     rc = ResponseCalculator(mol, pyscf.scf.RHF)
+    #rc.build_susceptibility(grid.coords+0.001)
     rc.build_susceptibility(coords)
-    rc.build_polarizability(coords)
+    #rc.build_polarizability(coords)
 
-    print(
-        "chitest",
-        rc.evaluate_susceptibility(np.array((0, 0, 0)), np.array((0, 0, 0.1))),
-    )
-    print(
-        "alphatest",
-        rc.evaluate_polarizability(np.array((0, 0, 0)), np.array((0, 0, 0.1))),
-    )
+    #print(rc._Q.shape)
+    #print(np.sum(rc._Q))
+    chi = np.sum(np.dot(rc.get_ao_integrals(), rc._Q, rc.get_ao_integrals().T))
+    print("chi = :",chi)
+    #print(
+    #    "chitest",
+    #    rc.evaluate_susceptibility(np.array((0, 0, 0)), np.array((0, 0, 0.1))),
+   # )
+    #print(
+    #    "alphatest",
+    #    rc.evaluate_polarizability(np.array((0, 0, 0)), np.array((0, 0, 0.1))),
+   # )
