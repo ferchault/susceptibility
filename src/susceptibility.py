@@ -70,7 +70,7 @@ class ResponseCalculator:
         D = []
         B = []
 
-        if len(coords) < self._mol.nao:
+        if len(coords) < self._molresp.nao:
             print("Would be underdetermined. Aborting.")
             sys.exit(1)
         for coord in tqdm.tqdm(coords, desc="Chi", leave=False):
@@ -85,12 +85,12 @@ class ResponseCalculator:
         #lstsq = scipy_lstsq(B, D)
         res = (np.sqrt((D - B @ lstsq[0]) ** 2).mean()) / np.abs(D).mean()
         print(f"Chi:   Average relative residual {res*100:8.3f} %")
-        self._Q = lstsq[0].reshape(self._mol.nao, self._mol.nao)
+        self._Q = lstsq[0].reshape(self._molresp.nao, self._molresp.nao)
         self._Qvec = lstsq[0]
 
     def evaluate_susceptibility(self, r: np.ndarray, rprime: np.ndarray) -> float:
         coords = np.array((r, rprime))
-        beta_k, beta_l = pyscf.dft.numint.eval_ao(self._mol, coords, deriv=0)
+        beta_k, beta_l = pyscf.dft.numint.eval_ao(self._molresp, coords, deriv=0)
 
         #return np.sum(self._Q * np.outer(beta_k, beta_l))
         return np.dot(self._Qvec,np.outer(beta_k, beta_l).reshape(-1))
@@ -121,26 +121,26 @@ class ResponseCalculator:
             lstsq = npl.lstsq(B, D, rcond=None)
             res = (np.sqrt((D - B @ lstsq[0]) ** 2).mean()) / np.abs(D).mean()
             print(f"{label}: Average relative residual {res*100:8.3f} %")
-            A = lstsq[0].reshape(self._mol.nao, self._mol.nao)
+            A = lstsq[0].reshape(self._molresp.nao, self._molresp.nao)
             self._A[i, j, :, :] = A
 
     def evaluate_polarizability(self, r: np.ndarray, rprime: np.ndarray) -> float:
         coords = np.array((r, rprime))
-        beta_k, beta_l = pyscf.dft.numint.eval_ao(self._mol, coords, deriv=0)
+        beta_k, beta_l = pyscf.dft.numint.eval_ao(self._molresp, coords, deriv=0)
 
         return np.sum(self._A * np.outer(beta_k, beta_l), axis=(2, 3))
 
     def get_ao_integrals(self) -> float:
-        basis_set_values = pyscf.dft.numint.eval_ao(self._mol, self._grid.coords, deriv=0)
-        ao_integrals = np.dot(self._grid.weights,basis_set_values)
+        basis_set_values = pyscf.dft.numint.eval_ao(self._molresp, self._gridresp.coords, deriv=0)
+        ao_integrals = np.dot(self._gridresp.weights,basis_set_values)
         return ao_integrals
 
     def response_basis_set(self):
         molresp = pyscf.gto.M(
             atom=f"H 0 0 0",
             #atom=f"N 0 0 0; N 0 0 1",
-            basis="unc-def2-TZVP",
-            #basis="unc-aug-cc-pVTZ",
+            #basis="unc-def2-TZVP",
+            basis="unc-aug-cc-pVTZ",
             spin=1,
             verbose=0,
          )
@@ -171,10 +171,10 @@ if __name__ == "__main__":
 
 
     # uniform cubic grid
-    N = 20
-    x = np.linspace(-5,5,N)
-    y = np.linspace(-5,5,N)
-    z = np.linspace(-5,5,N)
+    N = 10
+    x = np.linspace(-3,3,N)
+    y = np.linspace(-3,3,N)
+    z = np.linspace(-3,3,N)
     xx, yy, zz = np.meshgrid(x, y, z)
     coords=[]
     for ii in range(xx.shape[0]):
