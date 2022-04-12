@@ -41,10 +41,10 @@ class ResponseCalculator:
 
 
     def get_derivative(self, pos: np.ndarray):
-        coords = self._grid.coords - pos
+        coords = self._gridresp.coords - pos
         d = np.linalg.norm(coords, axis=1)
-        combined = self._q * self._grid.weights / d
-        ao_value = pyscf.dft.numint.eval_ao(self._mol, coords, deriv=0)
+        combined = self._q * self._gridresp.weights / d
+        ao_value = pyscf.dft.numint.eval_ao(self._molresp, coords, deriv=0)
         integrals = np.dot(ao_value.T, combined.T)
 
         # alternative integral scheme
@@ -135,6 +135,23 @@ class ResponseCalculator:
         ao_integrals = np.dot(self._grid.weights,basis_set_values)
         return ao_integrals
 
+    def response_basis_set(self):
+        molresp = pyscf.gto.M(
+            atom=f"H 0 0 0",
+            #atom=f"N 0 0 0; N 0 0 1",
+            basis="unc-def2-TZVP",
+            #basis="unc-aug-cc-pVTZ",
+            spin=1,
+            verbose=0,
+         )
+        self._molresp = molresp
+        self._calcresp = pyscf.scf.RHF
+        self._gridresp = pyscf.dft.gen_grid.Grids(self._molresp)
+        self._gridresp.level = 8
+        self._gridresp.build()
+        calc = self._calcresp(self._molresp)
+        calc.kernel()
+
 
 if __name__ == "__main__":
     # define molecule
@@ -154,7 +171,7 @@ if __name__ == "__main__":
 
 
     # uniform cubic grid
-    N = 21
+    N = 20
     x = np.linspace(-5,5,N)
     y = np.linspace(-5,5,N)
     z = np.linspace(-5,5,N)
@@ -163,10 +180,11 @@ if __name__ == "__main__":
     for ii in range(xx.shape[0]):
         for jj in range(xx.shape[1]):
             for kk in range(xx.shape[0]):
-                coords.append(np.asarray([xx[ii][jj][kk], yy[ii][jj][kk], zz[ii][jj][kk]])+0.01) #offset from 0
+                coords.append(np.asarray([xx[ii][jj][kk], yy[ii][jj][kk], zz[ii][jj][kk]])) #is there a need to make sure theres no grid at (0,0,0)?
 
     # collect data
     rc = ResponseCalculator(mol, pyscf.scf.RHF)
+    rc.response_basis_set()
     #rc.build_susceptibility(grid.coords)
     rc.build_susceptibility(coords)
     #rc.build_polarizability(coords)
@@ -174,7 +192,7 @@ if __name__ == "__main__":
     #print(rc._Q.shape)
     print(" sum of q: ",np.sum(rc._Q))
     chi = np.dot(rc._Qvec,np.outer(rc.get_ao_integrals(), rc.get_ao_integrals()).reshape(-1))
-    print("chi = :",chi)
+    print("chi = :",chi, " . If this value is not close to zero, then something is wrong! ")
 
     print(
      "chitest",
