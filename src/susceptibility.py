@@ -8,6 +8,8 @@ import numpy.linalg as npl
 import tqdm
 import sys
 from scipy import integrate
+from scipy.sparse.linalg import lsqr
+from scipy.linalg import lstsq as scipy_lstsq
 
 def transformed_coulomb(s, coord, pos):
     return np.exp(-s**2 * np.linalg.norm(coord-pos)**2)
@@ -20,7 +22,7 @@ class ResponseCalculator:
         self._calc = calc
         self._q = 0.001
         self._grid = pyscf.dft.gen_grid.Grids(self._mol)
-        self._grid.level = 2
+        self._grid.level = 8
         self._grid.build()
         calc = self._calc(self._mol)
         calc.kernel()
@@ -42,7 +44,6 @@ class ResponseCalculator:
         coords = self._grid.coords - pos
         d = np.linalg.norm(coords, axis=1)
         combined = self._q * self._grid.weights / d
-
         ao_value = pyscf.dft.numint.eval_ao(self._mol, coords, deriv=0)
         integrals = np.dot(ao_value.T, combined.T)
 
@@ -78,18 +79,21 @@ class ResponseCalculator:
             B.append(B_j)
         D = np.array(D)
         B = np.array(B)
-        print(B.shape)
 
         lstsq = npl.lstsq(B, D, rcond=None)
+        #lstsq = lsqr(B, D)
+        #lstsq = scipy_lstsq(B, D)
         res = (np.sqrt((D - B @ lstsq[0]) ** 2).mean()) / np.abs(D).mean()
         print(f"Chi:   Average relative residual {res*100:8.3f} %")
         self._Q = lstsq[0].reshape(self._mol.nao, self._mol.nao)
+        self._Qvec = lstsq[0]
 
     def evaluate_susceptibility(self, r: np.ndarray, rprime: np.ndarray) -> float:
         coords = np.array((r, rprime))
         beta_k, beta_l = pyscf.dft.numint.eval_ao(self._mol, coords, deriv=0)
 
-        return np.sum(self._Q * np.outer(beta_k, beta_l))
+        #return np.sum(self._Q * np.outer(beta_k, beta_l))
+        return np.dot(self._Qvec,np.outer(beta_k, beta_l).reshape(-1))
 
     def build_polarizability(self, coords: np.ndarray):
         self._A = np.zeros((3, 3, self._mol.nao, self._mol.nao))
@@ -127,10 +131,8 @@ class ResponseCalculator:
         return np.sum(self._A * np.outer(beta_k, beta_l), axis=(2, 3))
 
     def get_ao_integrals(self) -> float:
-        coord = np.random.random((1,3))
-        nr_of_aos = pyscf.dft.numint.eval_ao(self._mol, coord, deriv=0).shape[1]
         basis_set_values = pyscf.dft.numint.eval_ao(self._mol, self._grid.coords, deriv=0)
-        ao_integrals = np.dot(self._grid.weights.T, basis_set_values)
+        ao_integrals = np.dot(self._grid.weights,basis_set_values)
         return ao_integrals
 
 
@@ -139,34 +141,45 @@ if __name__ == "__main__":
     mol = pyscf.gto.M(
         atom=f"He 0 0 0",
         #atom=f"N 0 0 0; N 0 0 1",
-        #basis="def2-TZVP",
-        basis="unc-aug-cc-pVTZ",
+        basis="unc-def2-TZVP",
+        #basis="unc-aug-cc-pVTZ",
         verbose=0,
     )
 
+
+    # dft integration grid
     grid = pyscf.dft.gen_grid.Grids(mol)
-    grid.level = 1
+    grid.level = 4
     grid.build()
 
-    # regression grid
-    N = 51
-    coords = np.zeros((N, 3))
-    coords[:, 2] = np.linspace(0.1, 5, N)
+
+    # uniform cubic grid
+    N = 21
+    x = np.linspace(-5,5,N)
+    y = np.linspace(-5,5,N)
+    z = np.linspace(-5,5,N)
+    xx, yy, zz = np.meshgrid(x, y, z)
+    coords=[]
+    for ii in range(xx.shape[0]):
+        for jj in range(xx.shape[1]):
+            for kk in range(xx.shape[0]):
+                coords.append(np.asarray([xx[ii][jj][kk], yy[ii][jj][kk], zz[ii][jj][kk]])+0.01) #offset from 0
 
     # collect data
     rc = ResponseCalculator(mol, pyscf.scf.RHF)
-    #rc.build_susceptibility(grid.coords+0.001)
+    #rc.build_susceptibility(grid.coords)
     rc.build_susceptibility(coords)
     #rc.build_polarizability(coords)
 
     #print(rc._Q.shape)
-    #print(np.sum(rc._Q))
-    chi = np.sum(np.dot(rc.get_ao_integrals(), rc._Q, rc.get_ao_integrals().T))
+    print(" sum of q: ",np.sum(rc._Q))
+    chi = np.dot(rc._Qvec,np.outer(rc.get_ao_integrals(), rc.get_ao_integrals()).reshape(-1))
     print("chi = :",chi)
-    #print(
-    #    "chitest",
-    #    rc.evaluate_susceptibility(np.array((0, 0, 0)), np.array((0, 0, 0.1))),
-   # )
+
+    print(
+     "chitest",
+     rc.evaluate_susceptibility(np.array((0, 0, 0)), np.array((0, 0, 0.1))),
+    )
     #print(
     #    "alphatest",
     #    rc.evaluate_polarizability(np.array((0, 0, 0)), np.array((0, 0, 0.1))),
