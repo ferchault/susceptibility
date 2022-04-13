@@ -104,10 +104,10 @@ class ResponseCalculator:
         # return np.sum(self._Q * np.outer(beta_k, beta_l))
         return np.dot(self._Qvec, np.outer(beta_k, beta_l).reshape(-1))
 
-    def build_polarizability(self, coords: np.ndarray):
-        self._A = np.zeros((3, 3, self._mol.nao, self._mol.nao))
+    def build_polarizability(self, coords: np.ndarray, regularizer):
+        self._A = np.zeros((3, 3, self._molresp.nao, self._molresp.nao))
         derivs = pyscf.dft.numint.eval_ao(
-            self._mol, coords, deriv=1
+            self._molresp, coords, deriv=1
         )  # [0, x, y, z]:[pts]:[nao]
 
         ncoords = len(coords)
@@ -127,7 +127,10 @@ class ResponseCalculator:
                 right = derivs[j + 1, rprime, :]
                 B.append(np.outer(left, right).reshape(-1))
 
-            lstsq = npl.lstsq(B, D, rcond=None)
+            #lstsq = npl.lstsq(B, D, rcond=None)
+            B=np.array(B)
+            D=np.array(D)
+            lstsq = regularized_least_squares(B, D, regularizer)
             res = (np.sqrt((D - B @ lstsq[0]) ** 2).mean()) / np.abs(D).mean()
             print(f"{label}: Average relative residual {res*100:8.3f} %")
             A = lstsq[0].reshape(self._molresp.nao, self._molresp.nao)
@@ -174,33 +177,32 @@ if __name__ == "__main__":
     )
 
     # uniform cubic grid
-    N = 4
+    N = 10
     delta = 0.3
     x = np.linspace(-delta, delta, N)
     coords = np.array(np.meshgrid(*[x] * 3)).reshape(3, -1).T
 
     # collect data
     rc = ResponseCalculator(mol, pyscf.scf.RHF)
-    rc.response_basis_set("def2-TZVP", "Ne", 1)
-    # rc.build_susceptibility(grid.coords)
+    rc.response_basis_set("def2-QZVP", "Ne", 5)
     rc.build_susceptibility(coords, 1e-7)
-    # rc.build_polarizability(coords)
+    rc.build_polarizability(coords, 1e-7)
 
-    # print(rc._Q.shape)
-    # print(" sum of q: ", np.sum(rc._Q))
     aoint = rc.get_ao_integrals()
     chi = np.dot(rc._Qvec, np.outer(aoint, aoint).reshape(-1))
+    alpha= np.sum(rc._A * np.outer(aoint, aoint), axis=(2, 3))
     print(
         "chi = :",
         chi,
         " . If this value is not close to zero, then something is wrong! ",
     )
+    print( "alpha = :", alpha)
 
     print(
         "chitest",
         rc.evaluate_susceptibility(np.array((0, 0, 0)), np.array((0, 0, 0.1))),
     )
-    # print(
-    #    "alphatest",
-    #    rc.evaluate_polarizability(np.array((0, 0, 0)), np.array((0, 0, 0.1))),
-# )
+    print(
+        "alphatest",
+        rc.evaluate_polarizability(np.array((0, 0, 0)), np.array((0, 0, 0.1))),
+    )
