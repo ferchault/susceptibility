@@ -51,10 +51,9 @@ class ResponseCalculator:
         return up.energy_elec()[0] + dn.energy_elec()[0] - 2 * self._center
 
     def get_derivative(self, pos: np.ndarray):
-        coords = self._grid.coords - pos
-        d = np.linalg.norm(coords, axis=1)
+        d = np.linalg.norm(self._grid.coords - pos, axis=1)
         combined = self._q * self._grid.weights / d
-        ao_value = pyscf.dft.numint.eval_ao(self._molresp, coords, deriv=0)
+        ao_value = pyscf.dft.numint.eval_ao(self._molresp, self._grid.coords, deriv=0)
         integrals = np.dot(ao_value.T, combined.T)
 
         # alternative integral scheme
@@ -89,8 +88,8 @@ class ResponseCalculator:
         D = np.array(D)
         B = np.array(B)
 
-        lstsq = regularized_least_squares(B, D, regularizer)
-        # lstsq = lsqr(B, D)
+        # lstsq = regularized_least_squares(B, D, regularizer)
+        lstsq = lsqr(B, D)
         # lstsq = scipy_lstsq(B, D)
         res = (np.sqrt((D - B @ lstsq[0]) ** 2).mean()) / np.abs(D).mean()
         print(f"Chi:   Average relative residual {res*100:8.3f} %")
@@ -127,9 +126,9 @@ class ResponseCalculator:
                 right = derivs[j + 1, rprime, :]
                 B.append(np.outer(left, right).reshape(-1))
 
-            #lstsq = npl.lstsq(B, D, rcond=None)
-            B=np.array(B)
-            D=np.array(D)
+            # lstsq = npl.lstsq(B, D, rcond=None)
+            B = np.array(B)
+            D = np.array(D)
             lstsq = regularized_least_squares(B, D, regularizer)
             res = (np.sqrt((D - B @ lstsq[0]) ** 2).mean()) / np.abs(D).mean()
             print(f"{label}: Average relative residual {res*100:8.3f} %")
@@ -177,32 +176,32 @@ if __name__ == "__main__":
     )
 
     # uniform cubic grid
-    N = 10
-    delta = 0.3
+    N = 20
+    delta = 1
     x = np.linspace(-delta, delta, N)
     coords = np.array(np.meshgrid(*[x] * 3)).reshape(3, -1).T
 
     # collect data
     rc = ResponseCalculator(mol, pyscf.scf.RHF)
-    rc.response_basis_set("def2-QZVP", "Ne", 5)
+    rc.response_basis_set("def2-QZVP", "Ne", 1)
     rc.build_susceptibility(coords, 1e-7)
-    rc.build_polarizability(coords, 1e-7)
+    # rc.build_polarizability(coords, 1e-7)
 
     aoint = rc.get_ao_integrals()
     chi = np.dot(rc._Qvec, np.outer(aoint, aoint).reshape(-1))
-    alpha= np.sum(rc._A * np.outer(aoint, aoint), axis=(2, 3))
+    # alpha = np.sum(rc._A * np.outer(aoint, aoint), axis=(2, 3))
     print(
         "chi = :",
         chi,
         " . If this value is not close to zero, then something is wrong! ",
     )
-    print( "alpha = :", alpha)
+    # print("alpha = :", alpha)
 
     print(
         "chitest",
         rc.evaluate_susceptibility(np.array((0, 0, 0)), np.array((0, 0, 0.1))),
     )
-    print(
-        "alphatest",
-        rc.evaluate_polarizability(np.array((0, 0, 0)), np.array((0, 0, 0.1))),
-    )
+    # print(
+    #     "alphatest",
+    #     rc.evaluate_polarizability(np.array((0, 0, 0)), np.array((0, 0, 0.1))),
+    # )
