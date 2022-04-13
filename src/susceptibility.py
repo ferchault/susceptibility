@@ -5,6 +5,7 @@ import pyscf.qmmm
 import numpy as np
 import itertools as it
 import numpy.linalg as npl
+from sklearn.preprocessing import scale
 import tqdm
 import sys
 from scipy import integrate
@@ -39,6 +40,7 @@ class ResponseCalculator:
             self._calc(self._mol), np.array((pos,)), np.array((-self._q,))
         )
         dn.kernel()
+        assert up.converged and dn.converged
         return up.energy_elec()[0] + dn.energy_elec()[0] - 2 * self._center
 
     def get_derivative(self, pos: np.ndarray):
@@ -137,12 +139,17 @@ class ResponseCalculator:
         ao_integrals = np.dot(self._grid.weights, basis_set_values)
         return ao_integrals
 
-    def response_basis_set(self):
+    def response_basis_set(self, refbasis, element, scale):
+        uncontracted = pyscf.gto.uncontract(pyscf.gto.load(refbasis, element))
+        basis = []
+        for basisfunction in uncontracted:
+            basisfunction[1][0] *= scale
+            basis.append(basisfunction)
         molresp = pyscf.gto.M(
             atom=f"H 0 0 0",
             # atom=f"N 0 0 0; N 0 0 1",
             # basis="unc-def2-TZVP",
-            basis="unc-aug-cc-pVTZ",
+            basis={"H": basis},
             spin=1,
             verbose=0,
         )
@@ -160,11 +167,10 @@ if __name__ == "__main__":
     )
 
     # uniform cubic grid
-    N = 3
-    x = np.linspace(-3, 3, N)
-    y = np.linspace(-3, 3, N)
-    z = np.linspace(-3, 3, N)
-    xx, yy, zz = np.meshgrid(x, y, z)
+    N = 4
+    delta = 0.3
+    x = np.linspace(-delta, delta, N)
+    xx, yy, zz = np.meshgrid(x, x, x)
     coords = []
     for ii in range(xx.shape[0]):
         for jj in range(xx.shape[1]):
@@ -175,13 +181,13 @@ if __name__ == "__main__":
 
     # collect data
     rc = ResponseCalculator(mol, pyscf.scf.RHF)
-    rc.response_basis_set()
+    rc.response_basis_set("def2-TZVP", "Ne", 1)
     # rc.build_susceptibility(grid.coords)
     rc.build_susceptibility(coords)
     # rc.build_polarizability(coords)
 
     # print(rc._Q.shape)
-    print(" sum of q: ", np.sum(rc._Q))
+    # print(" sum of q: ", np.sum(rc._Q))
     aoint = rc.get_ao_integrals()
     chi = np.dot(rc._Qvec, np.outer(aoint, aoint).reshape(-1))
     print(
