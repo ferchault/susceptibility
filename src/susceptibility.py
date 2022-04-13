@@ -17,6 +17,13 @@ def transformed_coulomb(s, coord, pos):
     return np.exp(-(s**2) * np.linalg.norm(coord - pos) ** 2)
 
 
+def regularized_least_squares(A, y, lamb=0):
+    n_col = A.shape[1]
+    return np.linalg.lstsq(
+        A.T.dot(A) + lamb * np.identity(n_col), A.T.dot(y), rcond=None
+    )
+
+
 class ResponseCalculator:
     """Implements a generalized case of 10.1021/ct1004577, section 2."""
 
@@ -68,7 +75,7 @@ class ResponseCalculator:
 
         return D_j, B_j
 
-    def build_susceptibility(self, coords: np.ndarray):
+    def build_susceptibility(self, coords: np.ndarray, regularizer: float):
         D = []
         B = []
 
@@ -82,7 +89,7 @@ class ResponseCalculator:
         D = np.array(D)
         B = np.array(B)
 
-        lstsq = npl.lstsq(B, D, rcond=None)
+        lstsq = regularized_least_squares(B, D, regularizer)
         # lstsq = lsqr(B, D)
         # lstsq = scipy_lstsq(B, D)
         res = (np.sqrt((D - B @ lstsq[0]) ** 2).mean()) / np.abs(D).mean()
@@ -161,7 +168,7 @@ if __name__ == "__main__":
     mol = pyscf.gto.M(
         atom=f"He 0 0 0",
         # atom=f"N 0 0 0; N 0 0 1",
-        basis="unc-def2-TZVP",
+        basis="def2-TZVP",
         # basis="unc-aug-cc-pVTZ",
         verbose=0,
     )
@@ -170,20 +177,13 @@ if __name__ == "__main__":
     N = 4
     delta = 0.3
     x = np.linspace(-delta, delta, N)
-    xx, yy, zz = np.meshgrid(x, x, x)
-    coords = []
-    for ii in range(xx.shape[0]):
-        for jj in range(xx.shape[1]):
-            for kk in range(xx.shape[0]):
-                coords.append(
-                    np.asarray([xx[ii][jj][kk], yy[ii][jj][kk], zz[ii][jj][kk]])
-                )  # is there a need to make sure theres no grid at (0,0,0)?
+    coords = np.array(np.meshgrid(*[x] * 3)).reshape(3, -1).T
 
     # collect data
     rc = ResponseCalculator(mol, pyscf.scf.RHF)
     rc.response_basis_set("def2-TZVP", "Ne", 1)
     # rc.build_susceptibility(grid.coords)
-    rc.build_susceptibility(coords)
+    rc.build_susceptibility(coords, 1e-7)
     # rc.build_polarizability(coords)
 
     # print(rc._Q.shape)
