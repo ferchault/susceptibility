@@ -1,3 +1,4 @@
+from calendar import c
 import pyscf.scf
 import pyscf.gto
 import pyscf.dft
@@ -5,7 +6,6 @@ import pyscf.qmmm
 import numpy as np
 import itertools as it
 import numpy.linalg as npl
-from sklearn.preprocessing import scale
 import tqdm
 import sys
 from scipy import integrate
@@ -92,9 +92,10 @@ class ResponseCalculator:
         lstsq = lsqr(B, D)
         # lstsq = scipy_lstsq(B, D)
         res = (np.sqrt((D - B @ lstsq[0]) ** 2).mean()) / np.abs(D).mean()
-        print(f"Chi:   Average relative residual {res*100:8.3f} %")
+        # print(f"Chi:   Average relative residual {res*100:8.3f} %")
         self._Q = lstsq[0].reshape(self._molresp.nao, self._molresp.nao)
         self._Qvec = lstsq[0]
+        return res
 
     def evaluate_susceptibility(self, r: np.ndarray, rprime: np.ndarray) -> float:
         coords = np.array((r, rprime))
@@ -165,30 +166,31 @@ class ResponseCalculator:
         self._molresp = molresp
 
 
-if __name__ == "__main__":
-    # define molecule
+def do_case(
+    griddelta, gridN, responsebasis, responseelement, responsescale, regularizer
+):
     mol = pyscf.gto.M(
         atom=f"He 0 0 0",
-        # atom=f"N 0 0 0; N 0 0 1",
         basis="def2-TZVP",
-        # basis="unc-aug-cc-pVTZ",
         verbose=0,
     )
 
     # uniform cubic grid
-    N = 20
-    delta = 1
+    N = gridN
+    delta = griddelta
     x = np.linspace(-delta, delta, N)
     coords = np.array(np.meshgrid(*[x] * 3)).reshape(3, -1).T
 
     # collect data
     rc = ResponseCalculator(mol, pyscf.scf.RHF)
-    rc.response_basis_set("def2-QZVP", "Ne", 1)
-    rc.build_susceptibility(coords, 1e-7)
+    rc.response_basis_set(responsebasis, responseelement, responsescale)
+    residual = rc.build_susceptibility(coords, regularizer)
     # rc.build_polarizability(coords, 1e-7)
 
     aoint = rc.get_ao_integrals()
     chi = np.dot(rc._Qvec, np.outer(aoint, aoint).reshape(-1))
+    onepoint = rc.evaluate_susceptibility(np.array((0, 0, 0.5)), np.array((0, 0, 1)))
+    return chi, onepoint, residual
     # alpha = np.sum(rc._A * np.outer(aoint, aoint), axis=(2, 3))
     print(
         "chi = :",
@@ -205,3 +207,30 @@ if __name__ == "__main__":
     #     "alphatest",
     #     rc.evaluate_polarizability(np.array((0, 0, 0)), np.array((0, 0, 0.1))),
     # )
+
+
+if __name__ == "__main__":
+    options = {
+        "griddelta": [0.5, 1, 2, 3],
+        "gridN": [4, 8, 16, 32],
+        "responsebasis": "STO-3G cc-pVDZ cc-pVTZ cc-pVQZ cc-pV5Z".split(),
+        "responseelement": ["He", "Ne"],
+        "responsescale": [1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8],
+        "regularizer": [1e-5, 1e-7, 1e-9, 1e-11],
+    }
+    starting = {
+        "griddelta": 1,
+        "gridN": 8,
+        "responsebasis": "cc-pVDZ",
+        "responseelement": "He",
+        "responsescale": 1,
+        "regularizer": 1e-7,
+    }
+    print(f"value     | CHI=0 | RES=0 | PT=const")
+    for scanarg in options.keys():
+        print("#" * 20, scanarg)
+        args = starting.copy()
+        for argval in options[scanarg]:
+            args[scanarg] = argval
+            chi, onepoint, residual = do_case(**args)
+            print(f"{argval:<10}: {chi:.2E} {residual:.2E} {onepoint:.2E}")
