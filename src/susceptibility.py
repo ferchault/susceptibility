@@ -11,6 +11,7 @@ import sys
 from scipy import integrate
 from scipy.sparse.linalg import lsqr
 from scipy.linalg import lstsq as scipy_lstsq
+import multiprocessing as mp
 
 
 def transformed_coulomb(s, coord, pos):
@@ -79,9 +80,10 @@ class ResponseCalculator:
         B = []
 
         if len(coords) < self._molresp.nao:
-            print("Would be underdetermined. Aborting.")
-            sys.exit(1)
-        for coord in tqdm.tqdm(coords, desc="Chi", leave=False):
+            #print("Would be underdetermined. Aborting.")
+            raise ValueError("Underdetermined")
+        #for coord in tqdm.tqdm(coords, desc="Chi", leave=False):
+        for coord in coords:
             D_j, B_j = self.get_derivative(coord)
             D.append(D_j)
             B.append(B_j)
@@ -165,10 +167,13 @@ class ResponseCalculator:
         )
         self._molresp = molresp
 
+def kwargwrapper(args):
+    try:
+        return do_case(**args)
+    except:
+        return None
 
-def do_case(
-    griddelta, gridN, responsebasis, responseelement, responsescale, regularizer
-):
+def do_case(griddelta, gridN, responsebasis, responseelement, responsescale, regularizer):
     mol = pyscf.gto.M(
         atom=f"He 0 0 0",
         basis="def2-TZVP",
@@ -211,26 +216,43 @@ def do_case(
 
 if __name__ == "__main__":
     options = {
-        "griddelta": [0.5, 1, 2, 3],
-        "gridN": [4, 8, 16, 32],
-        "responsebasis": "STO-3G cc-pVDZ cc-pVTZ cc-pVQZ cc-pV5Z".split(),
-        "responseelement": ["He", "Ne"],
-        "responsescale": [1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8],
-        "regularizer": [1e-5, 1e-7, 1e-9, 1e-11],
+        "griddelta": [ 2, 3, 4],
+        "gridN": [8, 16, 32],
+        "responsebasis": "cc-pVDZ".split(),
+        "responseelement": ["He"],
+        "responsescale": [1, 2, 3, 4, 5],
+        "regularizer": [ 1e-9, 1e-11],
     }
     starting = {
-        "griddelta": 1,
-        "gridN": 8,
+        "griddelta": 3,
+        "gridN": 16,
         "responsebasis": "cc-pVDZ",
         "responseelement": "He",
-        "responsescale": 1,
-        "regularizer": 1e-7,
+        "responsescale": 2,
+        "regularizer": 1e-9,
     }
-    print(f"value     | CHI=0 | RES=0 | PT=const")
+    cases = []
     for scanarg in options.keys():
-        print("#" * 20, scanarg)
+        #print("#" * 20, scanarg)
         args = starting.copy()
         for argval in options[scanarg]:
             args[scanarg] = argval
-            chi, onepoint, residual = do_case(**args)
-            print(f"{argval:<10}: {chi:.2E} {residual:.2E} {onepoint:.2E}")
+            cases.append(args)
+
+    with mp.Pool() as pool:
+        results = list(tqdm.tqdm(pool.imap(kwargwrapper, cases), total=len(cases)))
+    
+    print ("Starting")
+    print (starting)
+    print(" "*20 + "value     | CHI=0 | RES=0 | PT=const")
+    for case, result in zip(cases, results):
+        special = set(case.items()) - set(starting.items())
+        if len(special) == 0:
+            special = "starting"
+        else:
+            special = ' '.join(map(str, list(special)[0]))
+        if result is None:
+            print(f"{special:>30}: did not finish")
+            continue
+        chi, onepoint, residual = result
+        print(f"{special:>30}: {chi:.2E} {residual:.2E} {onepoint:.2E}")
