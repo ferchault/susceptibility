@@ -7,7 +7,7 @@ import numpy as np
 import itertools as it
 import numpy.linalg as npl
 import tqdm
-import sys
+import quadpy
 from scipy import integrate
 from scipy.sparse.linalg import lsqr
 from scipy.linalg import lstsq as scipy_lstsq
@@ -80,9 +80,9 @@ class ResponseCalculator:
         B = []
 
         if len(coords) < self._molresp.nao:
-            #print("Would be underdetermined. Aborting.")
+            # print("Would be underdetermined. Aborting.")
             raise ValueError("Underdetermined")
-        #for coord in tqdm.tqdm(coords, desc="Chi", leave=False):
+        # for coord in tqdm.tqdm(coords, desc="Chi", leave=False):
         for coord in coords:
             D_j, B_j = self.get_derivative(coord)
             D.append(D_j)
@@ -167,13 +167,17 @@ class ResponseCalculator:
         )
         self._molresp = molresp
 
+
 def kwargwrapper(args):
     try:
         return do_case(**args)
     except:
         return None
 
-def do_case(griddelta, gridN, responsebasis, responseelement, responsescale, regularizer):
+
+def do_case(
+    griddelta, gridmin, responsebasis, responseelement, responsescale, regularizer
+):
     mol = pyscf.gto.M(
         atom=f"He 0 0 0",
         basis="def2-TZVP",
@@ -181,10 +185,14 @@ def do_case(griddelta, gridN, responsebasis, responseelement, responsescale, reg
     )
 
     # uniform cubic grid
-    N = gridN
-    delta = griddelta
-    x = np.linspace(-delta, delta, N)
-    coords = np.array(np.meshgrid(*[x] * 3)).reshape(3, -1).T
+    # N = gridN
+    # delta = griddelta
+    # x = np.linspace(-delta, delta, N)
+    # coords = np.array(np.meshgrid(*[x] * 3)).reshape(3, -1).T
+    # lebedev grid
+    scheme = quadpy.u3.schemes["lebedev_011"]()
+    radial = np.arange(gridmin, 5, griddelta)
+    coords = np.concatenate([scheme.points.T * _ for _ in radial])
 
     # collect data
     rc = ResponseCalculator(mol, pyscf.scf.RHF)
@@ -216,41 +224,47 @@ def do_case(griddelta, gridN, responsebasis, responseelement, responsescale, reg
 
 if __name__ == "__main__":
     options = {
-        "griddelta": [ 2, 3, 4],
-        "gridN": [8, 16, 32],
-        "responsebasis": "cc-pVDZ".split(),
-        "responseelement": ["He"],
-        "responsescale": [1, 2, 3, 4, 5],
-        "regularizer": [ 1e-9, 1e-11],
+        "gridmin": [
+            0.5,
+        ],  # gridmax is hard coded
+        "griddelta": [0.05, 0.1, 0.2, 0.3, 0.4],
+        "responsebasis": "cc-pVTZ cc-pVQZ cc-pV5Z".split(),
+        "responseelement": ["He", "Ne"],
+        "responsescale": [
+            2,
+        ],
+        "regularizer": [1e-9],
     }
     starting = {
-        "griddelta": 3,
-        "gridN": 16,
-        "responsebasis": "cc-pVDZ",
-        "responseelement": "He",
+        "gridmin": 0.5,
+        "griddelta": 0.5,
+        "responsebasis": "cc-pVTZ",
+        "responseelement": "Ne",
         "responsescale": 2,
         "regularizer": 1e-9,
     }
-    cases = []
+    cases = [starting.copy()]
     for scanarg in options.keys():
-        #print("#" * 20, scanarg)
+        # print("#" * 20, scanarg)
         args = starting.copy()
         for argval in options[scanarg]:
+            if argval == starting[scanarg]:
+                continue
             args[scanarg] = argval
             cases.append(args.copy())
 
     with mp.Pool() as pool:
         results = list(tqdm.tqdm(pool.imap(kwargwrapper, cases), total=len(cases)))
-    
-    print ("Starting")
-    print (starting)
-    print(" "*20 + "value     | CHI=0 | RES=0 | PT=const")
+
+    print("Starting")
+    print(starting)
+    print(" " * 20 + "value     | CHI=0 | RES=0 | PT=const")
     for case, result in zip(cases, results):
         special = set(case.items()) - set(starting.items())
         if len(special) == 0:
             special = "starting"
         else:
-            special = ' '.join(map(str, list(special)[0]))
+            special = " ".join(map(str, list(special)[0]))
         if result is None:
             print(f"{special:>30}: did not finish")
             continue
