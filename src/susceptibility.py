@@ -237,7 +237,7 @@ if __name__ == "__main__":
         args = starting.copy()
         for argval in options[scanarg]:
             args[scanarg] = argval
-            cases.append(args)
+            cases.append(args.copy())
 
     with mp.Pool() as pool:
         results = list(tqdm.tqdm(pool.imap(kwargwrapper, cases), total=len(cases)))
