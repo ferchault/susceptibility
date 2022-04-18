@@ -190,7 +190,7 @@ def do_case(
     # x = np.linspace(-delta, delta, N)
     # coords = np.array(np.meshgrid(*[x] * 3)).reshape(3, -1).T
     # lebedev grid
-    scheme = quadpy.u3.schemes["lebedev_011"]()
+    scheme = quadpy.u3.schemes["lebedev_113"]()
     radial = np.arange(gridmin, 5, griddelta)
     coords = np.concatenate([scheme.points.T * _ for _ in radial])
 
@@ -227,9 +227,9 @@ if __name__ == "__main__":
         "gridmin": [
             0.5,
         ],  # gridmax is hard coded
-        "griddelta": [0.05, 0.1, 0.2, 0.3, 0.4],
-        "responsebasis": "cc-pVTZ cc-pVQZ cc-pV5Z".split(),
-        "responseelement": ["He", "Ne"],
+        "griddelta": [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1],
+        "responsebasis": "cc-pVTZ".split(),
+        "responseelement": ["He"],
         "responsescale": [
             2,
         ],
@@ -239,7 +239,7 @@ if __name__ == "__main__":
         "gridmin": 0.5,
         "griddelta": 0.5,
         "responsebasis": "cc-pVTZ",
-        "responseelement": "Ne",
+        "responseelement": "He",
         "responsescale": 2,
         "regularizer": 1e-9,
     }
