@@ -12,7 +12,15 @@ from scipy import integrate
 from scipy.sparse.linalg import lsqr
 from scipy.linalg import lstsq as scipy_lstsq
 import multiprocessing as mp
+import math
 
+
+def polar2cart(r, theta, phi):
+    return [
+         r * math.sin(theta) * math.cos(phi),
+         r * math.sin(theta) * math.sin(phi),
+         r * math.cos(theta)
+    ]
 
 def transformed_coulomb(s, coord, pos):
     return np.exp(-(s**2) * np.linalg.norm(coord - pos) ** 2)
@@ -82,8 +90,8 @@ class ResponseCalculator:
         if len(coords) < self._molresp.nao:
             # print("Would be underdetermined. Aborting.")
             raise ValueError("Underdetermined")
-        # for coord in tqdm.tqdm(coords, desc="Chi", leave=False):
-        for coord in coords:
+        for coord in tqdm.tqdm(coords, desc="Chi", leave=False):
+        #for coord in coords:
             D_j, B_j = self.get_derivative(coord)
             D.append(D_j)
             B.append(B_j)
@@ -174,6 +182,32 @@ def kwargwrapper(args):
     except:
         return None
 
+def real_space_scan(real_gridr, real_gridrr,
+    griddelta, gridmin, responsebasis, responseelement, responsescale, regularizer
+):
+    mol = pyscf.gto.M(
+        atom=f"He 0 0 0",
+        basis="def2-TZVP",
+        verbose=0,
+    )
+    scheme = quadpy.u3.schemes["lebedev_113"]()
+    radial = np.arange(gridmin, 5, griddelta)
+    coords = np.concatenate([scheme.points.T * _ for _ in radial])
+
+    rc = ResponseCalculator(mol, pyscf.scf.RHF)
+
+    rc.response_basis_set(responsebasis, responseelement, responsescale)
+    residual = rc.build_susceptibility(coords, regularizer)
+    # rc.build_polarizability(coords, 1e-7)
+
+    aoint = rc.get_ao_integrals()
+    chi = np.dot(rc._Qvec, np.outer(aoint, aoint).reshape(-1))
+    onepoint = rc.evaluate_susceptibility(np.array((0, 0, 0.5)), np.array((0, 0, 1)))
+    print(onepoint)
+    onepoint = rc.evaluate_susceptibility(real_gridr, real_gridrr)
+    print(onepoint)
+
+    return chi, onepoint, residual
 
 def do_case(
     griddelta, gridmin, responsebasis, responseelement, responsescale, regularizer
@@ -190,6 +224,7 @@ def do_case(
     # x = np.linspace(-delta, delta, N)
     # coords = np.array(np.meshgrid(*[x] * 3)).reshape(3, -1).T
     # lebedev grid
+
     scheme = quadpy.u3.schemes["lebedev_113"]()
     radial = np.arange(gridmin, 5, griddelta)
     coords = np.concatenate([scheme.points.T * _ for _ in radial])
@@ -222,7 +257,7 @@ def do_case(
     # )
 
 
-if __name__ == "__main__":
+def scan_parameters():
     options = {
         "gridmin": [
             0.5,
@@ -270,3 +305,17 @@ if __name__ == "__main__":
             continue
         chi, onepoint, residual = result
         print(f"{special:>30}: {chi:.2E} {residual:.2E} {onepoint:.2E}")
+
+
+if __name__ == "__main__":
+    #scan_parameters()
+    default_params = {
+        "griddelta": 0.5,
+        "gridmin": 0.5,
+        "responsebasis": "cc-pVTZ",
+        "responseelement": "He",
+        "responsescale": 2,
+        "regularizer": 1e-9,
+    }
+    real_space_scan(np.array((0, 0, 0.5)), np.array((0, 0, 1)), **default_params)
+    #griddelta, gridmin, responsebasis, responseelement, responsescale, regularizer
