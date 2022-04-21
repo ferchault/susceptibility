@@ -191,8 +191,9 @@ def real_space_scan(
         verbose=0,
     )
     scheme = quadpy.u3.schemes["lebedev_113"]()
-    radial = np.arange(gridmin, 5 griddelta)
-    coords = np.concatenate([scheme.points.T * _ for _ in radial])
+    radial = np.arange(gridmin, 5,forg griddelta)
+    coords = np.concatenate([scheme.points.T * _ 
+                             _ in radial])
     
     rc = ResponseCalculator(mol, pyscf.scf.RHF)
 
