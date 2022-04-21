@@ -191,23 +191,27 @@ def real_space_scan(real_gridr, real_gridrr,
         verbose=0,
     )
     scheme = quadpy.u3.schemes["lebedev_113"]()
-    radial = np.arange(gridmin, 5, griddelta)
+    radial = np.arange(gridmin, 1, griddelta)
     coords = np.concatenate([scheme.points.T * _ for _ in radial])
+    
+    try:
+        rc
+    except NameError:
+        rc = ResponseCalculator(mol, pyscf.scf.RHF)
 
-    rc = ResponseCalculator(mol, pyscf.scf.RHF)
-
-    rc.response_basis_set(responsebasis, responseelement, responsescale)
-    residual = rc.build_susceptibility(coords, regularizer)
+        rc.response_basis_set(responsebasis, responseelement, responsescale)
+        residual = rc.build_susceptibility(coords, regularizer)
     # rc.build_polarizability(coords, 1e-7)
 
-    aoint = rc.get_ao_integrals()
-    chi = np.dot(rc._Qvec, np.outer(aoint, aoint).reshape(-1))
-    onepoint = rc.evaluate_susceptibility(np.array((0, 0, 0.5)), np.array((0, 0, 1)))
-    print(onepoint)
-    onepoint = rc.evaluate_susceptibility(real_gridr, real_gridrr)
-    print(onepoint)
+        aoint = rc.get_ao_integrals()
+        chi = np.dot(rc._Qvec, np.outer(aoint, aoint).reshape(-1))
+        onepoint = rc.evaluate_susceptibility(np.array((0, 0, 0.5)), np.array((0, 0, 1)))
+    #onepoint = rc.evaluate_susceptibility(real_gridr, real_gridrr)
+        return chi, onepoint, residual
+    else:
+        return rc.evaluate_susceptibility(real_gridr, real_gridrr)
 
-    return chi, onepoint, residual
+
 
 def do_case(
     griddelta, gridmin, responsebasis, responseelement, responsescale, regularizer
@@ -255,6 +259,9 @@ def do_case(
     #     "alphatest",
     #     rc.evaluate_polarizability(np.array((0, 0, 0)), np.array((0, 0, 0.1))),
     # )
+
+def get_real_space(first_coord, second_coord):
+    return rc.evaluate_susceptibility(first_coord, second_coord)
 
 
 def scan_parameters():
@@ -318,4 +325,15 @@ if __name__ == "__main__":
         "regularizer": 1e-9,
     }
     real_space_scan(np.array((0, 0, 0.5)), np.array((0, 0, 1)), **default_params)
+    theta = [0, np.pi /4, np.pi/3, np.pi/2, np.pi]  # angle between the two vectors
+    r = np.linspace(0.1, 5, 51) # span of the two vector ranges
+
+    # rudimentary grid loop
+    for l in theta:
+        for rr in r:
+            for ii in range(len(r)):
+                first_coordinate = np.array((0,0,r[ii]))
+                second_coordinate = np.array((0,rr*math.sin(l),rr*math.cos(l)))
+                print(real_space_scan(first_coordinate, second_coordinate, **default_params))
+
     #griddelta, gridmin, responsebasis, responseelement, responsescale, regularizer
