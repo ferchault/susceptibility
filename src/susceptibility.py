@@ -13,6 +13,7 @@ from scipy.sparse.linalg import lsqr
 from scipy.linalg import lstsq as scipy_lstsq
 import multiprocessing as mp
 import math
+from os.path import exists as file_exists
 
 
 def polar2cart(r, theta, phi):
@@ -84,28 +85,32 @@ class ResponseCalculator:
         return D_j, B_j
 
     def build_susceptibility(self, coords: np.ndarray, regularizer: float):
-        D = []
-        B = []
+        if file_exists('chi.npy'):
+            self._Qvec = np.load('chi.npy')
+        else:
+            D = []
+            B = []
 
-        if len(coords) < self._molresp.nao:
+            if len(coords) < self._molresp.nao:
             # print("Would be underdetermined. Aborting.")
-            raise ValueError("Underdetermined")
-        for coord in tqdm.tqdm(coords, desc="Chi", leave=False):
+                raise ValueError("Underdetermined")
+            for coord in tqdm.tqdm(coords, desc="Chi", leave=False):
         #for coord in coords:
-            D_j, B_j = self.get_derivative(coord)
-            D.append(D_j)
-            B.append(B_j)
-        D = np.array(D)
-        B = np.array(B)
+                D_j, B_j = self.get_derivative(coord)
+                D.append(D_j)
+                B.append(B_j)
+            D = np.array(D)
+            B = np.array(B)
 
         # lstsq = regularized_least_squares(B, D, regularizer)
-        lstsq = lsqr(B, D)
+            lstsq = lsqr(B, D)
         # lstsq = scipy_lstsq(B, D)
-        res = (np.sqrt((D - B @ lstsq[0]) ** 2).mean()) / np.abs(D).mean()
+            res = (np.sqrt((D - B @ lstsq[0]) ** 2).mean()) / np.abs(D).mean()
         # print(f"Chi:   Average relative residual {res*100:8.3f} %")
-        self._Q = lstsq[0].reshape(self._molresp.nao, self._molresp.nao)
-        self._Qvec = lstsq[0]
-        return res
+            self._Q = lstsq[0].reshape(self._molresp.nao, self._molresp.nao)
+            self._Qvec = lstsq[0]
+            np.save('chi.npy', self._Qvec)
+            return res
 
     def evaluate_susceptibility(self, r: np.ndarray, rprime: np.ndarray) -> float:
         coords = np.array((r, rprime))
@@ -191,9 +196,8 @@ def real_space_scan(
         verbose=0,
     )
     scheme = quadpy.u3.schemes["lebedev_113"]()
-    radial = np.arange(gridmin, 5,forg griddelta)
-    coords = np.concatenate([scheme.points.T * _ 
-                             _ in radial])
+    radial = np.arange(gridmin, 5, griddelta)
+    coords = np.concatenate([scheme.points.T * _ for  _ in radial])
     
     rc = ResponseCalculator(mol, pyscf.scf.RHF)
 
@@ -236,7 +240,7 @@ def do_case(
     # lebedev grid
 
     scheme = quadpy.u3.schemes["lebedev_113"]()
-    radial = np.arange(gridmin, 5, griddelta)
+    
     coords = np.concatenate([scheme.points.T * _ for _ in radial])
 
     # collect data
