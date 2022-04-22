@@ -1,48 +1,73 @@
+#%%
 import pyscf.scf
 import pyscf.gto
 import pyscf.dft
 import scipy.integrate as sci
+import scipy.interpolate as scii
 import pyscf.qmmm
 import tqdm
 import numpy as np
 import quadpy
 from scipy.linalg import lstsq as sp_lstsq
+import matplotlib.pyplot as plt
 
 
 class ResponseCalculator:
     """Implements a generalized case of 10.1021/ct1004577, section 2."""
 
-    def __init__(self, mol, calc, coords, b):
+    def __init__(self, mol, calc, coords, centers, sigmas):
         self._mol = mol
         self._calc = calc
         # point charge
         self._q = 1e-1
         # softness parameter
         self._a = 1e-5
-        # gaussian width parameter
-        self._b = b
         calc = self._calc(self._mol)
         calc.kernel()
         self._center = calc.energy_elec()[0]
+        self._centers = centers
+        self._sigmas = sigmas
 
         self._build_cache(coords)
         self._build_numerical_integral()
-        self._build_grid()
 
     def _build_numerical_integral(self):
-        xss = np.logspace(1e-4, 8, 100)
-        yss = []
-        for x1 in xss:
-            yss.append(
-                sci.quad(
-                    lambda xs: np.exp(-self._b * xs**2) / (self._a + np.abs(xs - x1)),
-                    -100,
-                    100,
-                    limit=1000,
-                    points=x1,
-                )[0]
+        def integrand(cylr, cylz, sigma, d, a):
+            """2D version of integral"""
+            p = np.sqrt(cylr**2 + cylz**2)
+            q = np.sqrt(cylr**2 + (cylz - d) ** 2)
+            return (
+                2
+                * np.pi
+                * cylr
+                * np.exp(-0.5 * (p / sigma) ** 2)
+                / ((sigma * np.sqrt(2 * np.pi)))
+                / (a + q)
             )
-        self._integral = lambda x: np.interp(x, xss, yss, right=np.nan)
+
+        self._integral = {}
+        for sigma in tqdm.tqdm(set(self._sigmas)):
+            yss = []
+            xss = np.logspace(1e-5, 5, 100)
+            for d in xss:
+                # radius where the gaussian falls below 1e-10
+                limit = np.sqrt(-2 * sigma**2 * np.log(1e-10))
+                yss.append(
+                    sci.nquad(
+                        integrand,
+                        ((0, limit), (-limit, limit)),
+                        args=(sigma, d, self._a),
+                        opts={
+                            "limit": 1000,
+                            "points": [
+                                d,
+                            ],
+                        },
+                    )[0]
+                )
+            self._integral[sigma] = scii.interp1d(
+                xss, yss, "linear", fill_value=(yss[0], yss[-1]), bounds_error=False
+            )
 
     def _build_cache(self, coords):
         try:
@@ -74,46 +99,57 @@ class ResponseCalculator:
         assert up.converged and dn.converged
         return up.energy_elec()[0] + dn.energy_elec()[0] - 2 * self._center
 
-    def _build_grid(self):
-        # xs = np.linspace(-3, 3, 5)
-        # self._centers = np.array(np.meshgrid(*[xs] * 6)).reshape(6, -1).T
-        self._centers = np.zeros((70, 6))
+
+# def do_case():
+mol = pyscf.gto.M(
+    atom=f"He 0 0 0",
+    basis="aug-cc-pVDZ",
+    verbose=0,
+)
+
+scheme = quadpy.u3.schemes["lebedev_053"]()
+radial = np.linspace(0.3, 3, 4)
+coords = np.concatenate([scheme.points.T * _ for _ in radial])
+np.random.seed(42)
+coords += np.random.random(len(coords) * 3).reshape(-1, 3) * 0.1
+
+# collect data
+nsigmas = 20
+minsigma = -10
+sigmas = 1.2 ** np.arange(minsigma, minsigma + nsigmas)
+centers = np.zeros((nsigmas, 3))
+rc = ResponseCalculator(mol, pyscf.scf.RHF, coords, centers, sigmas)
+
+A = []
+for pos in tqdm.tqdm(coords[: nsigmas**2]):
+    line = np.zeros((nsigmas, nsigmas))
+    distances = np.linalg.norm(pos - centers, axis=1)
+    for i in range(nsigmas):
+        g_i = rc._integral[sigmas[i]](distances[i])
+        for j in range(nsigmas):
+            line[i, j] = g_i * rc._integral[sigmas[j]](distances[j])
+    A.append(line.reshape(-1))
+#     plt.plot(line.reshape(-1))
+#     if len(A) == 1:
+#         break
+# return
+
+A = np.array(A)
+plt.imshow(A)
+plt.show()
+y = rc._cache / rc._q**2
+y = y[: nsigmas**2]
+res = sp_lstsq(A, y, lapack_driver="gelsy")[0]
+residuals = y - A @ res
+print("Relative residual [%]", abs(residuals).mean() / abs(y).mean() * 100)
+
+res = res.reshape(nsigmas, nsigmas)
+plt.imshow(res)
 
 
-def do_case(b):
-    mol = pyscf.gto.M(
-        atom=f"He 0 0 0",
-        basis="aug-cc-pVDZ",
-        verbose=0,
-    )
+# do_case()
 
-    scheme = quadpy.u3.schemes["lebedev_053"]()
-    radial = np.linspace(0.3, 3, 10)
-    coords = np.concatenate([scheme.points.T * _ for _ in radial])
-
-    # collect data
-    rc = ResponseCalculator(mol, pyscf.scf.RHF, coords, b)
-
-    A = []
-    scales = 1.2 ** np.arange(-50, 20)
-    for pos in coords:
-        coeffs = 1
-        for dim in range(3):
-            coeffs *= rc._integral((abs(pos[dim] - rc._centers[:, dim])) / scales)
-            coeffs *= rc._integral((abs(pos[dim] - rc._centers[:, dim + 3])) / scales)
-        A.append(coeffs)
-    A = np.array(A)
-    res = sp_lstsq(A, rc._cache, lapack_driver="gelsy")[0]
-    # print(res)
-    residuals = rc._cache - A @ res
-    return abs(residuals).mean() / abs(rc._cache).mean()
-    # np.savez("res.npz", res=res)
-
-
-if __name__ == "__main__":
-    # for b in 1.2 ** np.arange(-50, 20):
-    #     print(f"{b:e} {do_case(b)*100:5.3f}")
-    b = 1e-2
-    print(do_case(b) * 100)
-    # plot this, fix the prefactors
-    # TODO: tighter SCF convergence?
+# %%
+plt.plot(sorted(residuals))
+plt.plot(sorted(y))
+# %%
