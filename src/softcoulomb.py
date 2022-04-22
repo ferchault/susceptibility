@@ -41,14 +41,14 @@ class ResponseCalculator:
                 * np.pi
                 * cylr
                 * np.exp(-0.5 * (p / sigma) ** 2)
-                / ((sigma * np.sqrt(2 * np.pi)))
+                / ((sigma * np.sqrt(2 * np.pi)) ** 3)
                 / (a + q)
             )
 
         self._integral = {}
         for sigma in tqdm.tqdm(set(self._sigmas)):
             yss = []
-            xss = np.logspace(1e-5, 5, 100)
+            xss = np.logspace(-5, 5, 100)
             for d in xss:
                 # radius where the gaussian falls below 1e-10
                 limit = np.sqrt(-2 * sigma**2 * np.log(1e-10))
@@ -97,38 +97,46 @@ class ResponseCalculator:
         dn.conv_tol = 1e-13
         dn.kernel()
         assert up.converged and dn.converged
-        return up.energy_elec()[0] + dn.energy_elec()[0] - 2 * self._center
+        return (up.energy_elec()[0] + dn.energy_elec()[0] - 2 * self._center) / (
+            self._q**2
+        )
 
 
 # def do_case():
 mol = pyscf.gto.M(
     atom=f"He 0 0 0",
-    basis="aug-cc-pVDZ",
+    basis="def2-TZVP",
     verbose=0,
 )
 
-scheme = quadpy.u3.schemes["lebedev_053"]()
-radial = np.linspace(0.3, 3, 4)
-coords = np.concatenate([scheme.points.T * _ for _ in radial])
-np.random.seed(42)
-coords += np.random.random(len(coords) * 3).reshape(-1, 3) * 0.1
+# scheme = quadpy.u3.schemes["lebedev_053"]()
+# radial = np.linspace(0.3, 3, 4)
+# coords = np.concatenate([scheme.points.T * _ for _ in radial])
+# np.random.seed(42)
+# coords += np.random.random(len(coords) * 3).reshape(-1, 3) * 0.1
+
+coords = np.zeros((450, 3))
+coords[:, 0] = np.linspace(0.2, 10, 450)
 
 # collect data
 nsigmas = 20
-minsigma = -10
-sigmas = 1.2 ** np.arange(minsigma, minsigma + nsigmas)
+minsigma = -5
+sigmas = 2.0 ** np.arange(minsigma, minsigma + nsigmas)
 centers = np.zeros((nsigmas, 3))
 rc = ResponseCalculator(mol, pyscf.scf.RHF, coords, centers, sigmas)
 
+#%%
 A = []
-for pos in tqdm.tqdm(coords[: nsigmas**2]):
+for pos in tqdm.tqdm(coords):
     line = np.zeros((nsigmas, nsigmas))
     distances = np.linalg.norm(pos - centers, axis=1)
     for i in range(nsigmas):
         g_i = rc._integral[sigmas[i]](distances[i])
         for j in range(nsigmas):
+            # print (rc._integral[sigmas[j]](distances[j]))
             line[i, j] = g_i * rc._integral[sigmas[j]](distances[j])
     A.append(line.reshape(-1))
+
 #     plt.plot(line.reshape(-1))
 #     if len(A) == 1:
 #         break
@@ -137,19 +145,42 @@ for pos in tqdm.tqdm(coords[: nsigmas**2]):
 A = np.array(A)
 plt.imshow(A)
 plt.show()
-y = rc._cache / rc._q**2
-y = y[: nsigmas**2]
+y = rc._cache
+y = y
 res = sp_lstsq(A, y, lapack_driver="gelsy")[0]
 residuals = y - A @ res
 print("Relative residual [%]", abs(residuals).mean() / abs(y).mean() * 100)
 
 res = res.reshape(nsigmas, nsigmas)
+# Xij matrix
 plt.imshow(res)
+plt.colorbar()
+plt.show()
 
-
-# do_case()
-
+#%%
+# plane slice
+data = []
+xij = res.reshape(nsigmas, nsigmas)
+xs = np.linspace(0, 5, 10)
+for x in xs:
+    line = []
+    for y in xs:
+        val = 0
+        for i in range(nsigmas):
+            for j in range(nsigmas):
+                val += (
+                    xij[i, j]
+                    * np.exp(-0.5 * (x**2 + y**2) / sigmas[i] ** 2)
+                    / (sigmas[i] * np.sqrt(2 * np.pi))
+                    * np.exp(-0.5 * (x**2 + y**2) / sigmas[j] ** 2)
+                    / (sigmas[j] * np.sqrt(2 * np.pi))
+                )
+        line.append(val)
+    data.append(line)
+data = np.array(data)
+data[0, 0] = np.nan
+plt.imshow(data)
+plt.colorbar()
 # %%
-plt.plot(sorted(residuals))
-plt.plot(sorted(y))
+data
 # %%
