@@ -153,9 +153,11 @@ print("Relative residual [%]", abs(residuals).mean() / abs(y).mean() * 100)
 
 res = res.reshape(nsigmas, nsigmas)
 # Xij matrix
-plt.imshow(res)
-plt.colorbar()
-plt.show()
+#plt.imshow(res)
+#plt.colorbar()
+#plt.show()
+#plt.savefig('lookatme_firstpart.png')
+
 
 #%%
 # plane slice
@@ -179,8 +181,37 @@ for x in xs:
     data.append(line)
 data = np.array(data)
 data[0, 0] = np.nan
-plt.imshow(data)
-plt.colorbar()
+#plt.imshow(data)
+#plt.colorbar()
+
+# x = [-2, 2] = Y
+step = 0.1
+mininum_coord = -4.0
+
+xcoords, ycoords, vals = [], [], []
+for xx in range(81):
+    for yy in range(81):
+        coord1=(0, 0, 0)
+        coord2=(0, mininum_coord+step*xx, mininum_coord+step*yy)
+        rr= np.sqrt((mininum_coord+step*xx)**2 + (mininum_coord+step*yy)**2)
+        val = 0
+        for i in range(nsigmas):
+            for j in range(nsigmas):
+                val += (
+                    xij[i, j]
+                    * np.exp(-0.5 * 0 / sigmas[i] ** 2)
+                    / (sigmas[i] * np.sqrt(2 * np.pi))
+                    * np.exp(-0.5 * rr / sigmas[j] ** 2)
+                    / (sigmas[j] * np.sqrt(2 * np.pi))
+                )
+        xcoords.append(mininum_coord+step*xx)
+        ycoords.append(mininum_coord+step*yy)
+        vals.append(val)
+        print(mininum_coord+step*xx,mininum_coord+step*yy,val)
+
+#plt.tricontourf(xcoords, ycoords, vals)
+#plt.show()
+#plt.savefig('trisurf_plot_softcoul.png')
 # %%
 data
 # %%
