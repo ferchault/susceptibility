@@ -209,17 +209,25 @@ def real_space_scan(
     chi = np.dot(rc._Qvec, np.outer(aoint, aoint).reshape(-1))
     onepoint = rc.evaluate_susceptibility(np.array((0, 0, 0.5)), np.array((0, 0, 1)))
     #return chi, onepoint, residual
-    theta = [0, np.pi /4, np.pi/3, np.pi/2, np.pi]  # angle between the two vectors
-    r = np.linspace(0.1, 5, 51) # span of the two vector ranges
+    minimum_coord=-4
+    step=0.1
+    xcoords, ycoords, vals = [], [], []
+    for xx in range(81):
+        for yy in range(81):
+            first_coordinate=(0,0,0)
+            second_coordinate=(0,minimum_coord+step*xx,minimum_coord+step*yy)
+            print(minimum_coord+step*xx, minimum_coord+step*yy, rc.evaluate_susceptibility(first_coordinate, second_coordinate))
+
+    #theta = [0, np.pi /4, np.pi/3, np.pi/2, np.pi]  # angle between the two vectors
+    #r = np.linspace(0.1, 5, 51) # span of the two vector ranges
 
     # rudimentary grid loop
-    for l in theta:
-        print("#### DOING THETA = ",l)
-        for rr in r:
-            for ii in range(len(r)):
-                first_coordinate = np.array((0,0,r[ii]))
-                second_coordinate = np.array((0,rr*math.sin(l),rr*math.cos(l)))
-                print(first_coordinate, second_coordinate, rc.evaluate_susceptibility(first_coordinate, second_coordinate))
+    #for l in theta:
+     #   print("#### DOING THETA = ",l)
+      #  for rr in r:
+       #     for ii in range(len(r)):
+        #        first_coordinate = np.array((0,0,r[ii]))
+         #       second_coordinate = np.array((0,rr*math.sin(l),rr*math.cos(l)))
 
 
 
