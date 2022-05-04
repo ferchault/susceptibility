@@ -12,10 +12,10 @@ def nonlocal_susceptibility(r, rp, Z):
     u = Z*( np.linalg.norm(r) + np.linalg.norm(rp) + dist )
     v = Z*( np.linalg.norm(r) + np.linalg.norm(rp) - dist )
 
-    prefactor = np.exp( 0.5*(u + v) )/np.pi
-    first_term = 2*np.euler_gamma + 5/2 + 0.5*(u + v) + np.log( u * v ) + expi(v)
+    prefactor = np.exp( -0.5*(u + v) )/np.pi
+    first_term = 2*np.euler_gamma - 5/2 + 0.5*(u + v) + np.log( u * v ) + expi(v)
     second_term = np.exp( 0.5*(u - v) )/np.pi/(u - v)
-    return h_atom_groundstate(np.linalg.norm(r), Z) *  h_atom_groundstate(np.linalg.norm(rp), Z) * (prefactor * first_term + second_term)
+    return h_atom_groundstate(np.linalg.norm(r), Z) *  h_atom_groundstate(np.linalg.norm(rp), Z) * (prefactor * first_term - second_term)
 
 def integrate_me(x1, y1, z1, x2, y2, z2):
     r = np.asarray( (x1, y1, z1) )
@@ -38,7 +38,7 @@ def white_formula(r, rp, Z):
 
 
 r = np.asarray( (1, 0, 0) )
-rp = np.asarray( (0.9999, 0, 0) )
+rp = np.asarray( (0.999999, 0, 0) )
 Z = 1
 
 print( nonlocal_susceptibility(r, rp, Z) )
