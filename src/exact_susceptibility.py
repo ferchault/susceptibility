@@ -1,7 +1,7 @@
 import numpy as np
 import math
 from scipy.special import expi
-from scipy.integrate import nquad
+from scipy.integrate import nquad, quad
 
 def h_atom_groundstate(r, Z):
     return np.power(Z,3/2)/np.sqrt(np.pi) * np.exp(-Z*r)
@@ -22,10 +22,25 @@ def integrate_me(x1, y1, z1, x2, y2, z2):
     rp = np.asarray( (x2, y2, z2) )
     return nonlocal_susceptibility( r, rp, 1) 
 
+def white_formula(r, rp, Z):
+    r1 = np.linalg.norm(r)
+    r2 = np.linalg.norm(rp)
+    r12 = math.dist(r,rp)
 
-#r = np.asarray( (1, 0, 0) )
-#rp = np.asarray( (0, 1, 0) )
-#Z = 1
+    first_term = -np.exp(-Z * r12)/(r12 * 4* np.pi) 
 
-#print( nonlocal_susceptibility(r, rp, Z) )
-print( nquad(integrate_me, [[-10, 10],[-10, 10], [-10, 10], [-10, 10], [-10, 10], [-10, 10] ]) )
+    second_term_prefactor = Z * np.exp(- Z * (r1 + r2) ) / (2* np.pi)
+    f = lambda x: (np.exp(x) - 1)/x
+    integral, err = quad(f, 0, Z*(r1 + r2 - r12))
+    second_term = np.euler_gamma - 5/2 + Z*(r1+r2) + np.log( Z*(r1 + r2 +r12 )) - integral
+
+    return first_term + second_term_prefactor * second_term
+
+
+r = np.asarray( (1, 0, 0) )
+rp = np.asarray( (0.999999, 0, 0) )
+Z = 1
+
+print( nonlocal_susceptibility(r, rp, Z) )
+print( white_formula(r, rp, Z) )
+#print( nquad(integrate_me, [[-10, 10],[-10, 10], [-10, 10], [-10, 10], [-10, 10], [-10, 10] ]) )
