@@ -34,11 +34,11 @@ def white_formula(r, rp, Z):
     integral, err = quad(f, 0, Z*(r1 + r2 - r12))
     second_term = np.euler_gamma - 5/2 + Z*(r1+r2) + np.log( Z*(r1 + r2 +r12 )) - integral
 
-    return first_term + second_term_prefactor * second_term
+    return h_atom_groundstate(r1, Z) *  h_atom_groundstate(r2, Z) *(first_term + second_term_prefactor * second_term)
 
 
 r = np.asarray( (1, 0, 0) )
-rp = np.asarray( (0.999999, 0, 0) )
+rp = np.asarray( (0.9999, 0, 0) )
 Z = 1
 
 print( nonlocal_susceptibility(r, rp, Z) )
