@@ -13,7 +13,7 @@ def nonlocal_susceptibility(r, rp, Z):
     v = Z*( np.linalg.norm(r) + np.linalg.norm(rp) - dist )/0.5
 
     prefactor = np.exp( -0.5*(u + v) )/np.pi 
-    first_term = 2*np.euler_gamma - 5/2 + 0.5*(u + v) + np.log( u * v ) + expi(v)
+    first_term = 2*np.euler_gamma - 5/2 + 0.5*(u + v) + np.log( u * v ) - expi(v)
     second_term = np.exp( 0.5*(u - v) )/np.pi/(u - v)
     return h_atom_groundstate(np.linalg.norm(r), Z) *  h_atom_groundstate(np.linalg.norm(rp), Z) * (prefactor * first_term - second_term)
 
@@ -56,7 +56,7 @@ def hostler_formula(r, rp, Z):
 
 
 r = np.asarray( (1, 0, 0) )
-rp = np.asarray( (1.00001, 0, 0) )
+rp = np.asarray( (3.0000, 0, 0) )
 Z = 1
 
 print( nonlocal_susceptibility(r, rp, Z) )
