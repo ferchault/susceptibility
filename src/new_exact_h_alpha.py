@@ -35,7 +35,7 @@ def transient_polarization(r, theta, phi,quantum_numbers_init, quantum_numbers_f
     partial_int = lambda r, theta, phi: quad(integrand, 0,1, args=(r,theta,phi,quantum_numbers_init,quantum_numbers_final))
     return r * partial_int(r, theta, phi)[0]
   
-  def cart2sph(cartesians):
+def cart2sph(cartesians):
     x, y, z = cartesians
     hxy = np.hypot(x, y)
     r = np.hypot(hxy, z)
@@ -59,7 +59,7 @@ def nlalpha(coord1, coord2, max_principal):
                     #print("principal: ",n," angular: ",i," magnetic: ",j)
     return alpha
   
-  axes_range_x = np.linspace(-3, 3, num=50)
+axes_range_x = np.linspace(-3, 3, num=50)
 axes_range_y = np.linspace(-3, 3, num=50)
 
 alphas = np.zeros((len(axes_range_x), len(axes_range_y)))
