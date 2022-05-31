@@ -73,7 +73,7 @@ class PolarizabilityBasis:
         # ys = ys[:n_points]
         # end limit
         basis_idx = list(range(n_basis))
-        A = np.zeros((n_points, 9 * n_basis**6))
+        A = np.zeros((2 * n_points, 9 * n_basis**6))
 
         col = 0
         for i, j, b_1, b_2, b_3, b_4, b_5, b_6 in it.product(
@@ -93,7 +93,16 @@ class PolarizabilityBasis:
                 if k != j:
                     p *= self._basis[bs[3 + k]](xs[:, 3 + k])
 
-            A[:, col] = p
+            A[:n_points, col] = p
+
+            pleft = 1
+            pright = 1
+            for k, basisindex in enumerate(bs):
+                pleft *= self._basis[basisindex](xs[:, k])
+            for k, basisindex in enumerate(list(bs[3:]) + list(bs[:3])):
+                pright *= self._basis[basisindex](xs[:, k])
+            A[n_points:, col] = pleft - pright
+
             col += 1
 
         # solve
@@ -101,16 +110,6 @@ class PolarizabilityBasis:
         solution, res, rank, s = np.linalg.lstsq(A, ys)
         residuals = A @ solution - ys
         return np.linalg.norm(residuals), np.linalg.norm(ys)
-
-        # return res
-        # symmetry condition, pad ys with 0
-        # pleft = 1
-        # pright = 1
-        # for k, basisindex in enumerate(bs):
-        #     pleft *= self._basis[basisindex](xs[:, k])
-        # for k, basisindex in enumerate(list(bs[3:]) + list(bs[:3])):
-        #     pright *= self._basis[basisindex](xs[:, k])
-        # A[n_points:, col] = pleft - pright
 
         #     col += 1
         # print (col, A.shape)
@@ -179,4 +178,3 @@ if __name__ == "__main__":
 
     print(profiler.output_text(unicode=True, color=True))
 # a_ij = a_ji tensor symmetric
-# exchange r, r' symmetric
