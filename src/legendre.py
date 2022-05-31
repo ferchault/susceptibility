@@ -62,29 +62,32 @@ class PolarizabilityBasis:
 
         n_basis = len(self._basis)
         n_points = len(ys)
+        n_points = 100
         basis_idx = list(range(n_basis))
         A = np.zeros((n_points, 9 * n_basis**6))
-        for idx in range(n_points):
-            col = 0
-            for i, j, b_1, b_2, b_3, b_4, b_5, b_6 in it.product(
-                *([range(3)] * 2), *([basis_idx] * 6)
-            ):
-                bs = b_1, b_2, b_3, b_4, b_5, b_6
-                p = 1
+
+        col = 0
+        for i, j, b_1, b_2, b_3, b_4, b_5, b_6 in it.product(
+            *([range(3)] * 2), *([basis_idx] * 6)
+        ):
+            bs = b_1, b_2, b_3, b_4, b_5, b_6
+            if self._derivs[bs[i]] == np.poly1d([0]):
+                continue
+            if self._derivs[bs[j]] == np.poly1d([0]):
+                continue
+
+            for idx in range(n_points):
+                d1 = self._derivs[bs[i]](xs[idx][i])
+                d2 = self._derivs[bs[j]](xs[idx][j])
+                p = d1 * d2
                 for k in range(3):
-                    if k == i:
-                        p *= self._derivs[bs[k]](xs[idx][k])
-                    else:
+                    if k != i:
                         p *= self._basis[bs[k]](xs[idx][k])
-                    if k == j:
-                        p *= self._derivs[bs[3 + k]](xs[idx][3 + k])
-                    else:
+                    if k != j:
                         p *= self._basis[bs[3 + k]](xs[idx][3 + k])
 
                 A[idx, col] = p
-                col += 1
-            if idx == 100:
-                break
+            col += 1
 
         return A  # plt.imshow(A[:576, :])
 
@@ -113,22 +116,18 @@ def test():
     ]
     print(legs)
     derivs = [_.deriv(1) for _ in legs]
+    print(derivs)
     print("Fitting")
     P = PolarizabilityBasis(legs, derivs)
     return points, chi, P.fit(points, chi)
 
 
-A = test()
+if __name__ == "__main__":
+    from pyinstrument import Profiler
 
-# %%
-# %%
-p, c, A = A
-plt.imshow(A[:100, :500])
+    profiler = Profiler()
+    profiler.start()
+    test()
+    profiler.stop()
 
-# %%
-np.allclose(A[3], A[4]), p[3], p[4], c[3], c[4]
-# %%
-plt.scatter(A[3], A[4])
-# %%
-plt.hist(A[:100, :].reshape(-1), bins=50)
-# %%
+    print(profiler.output_text(unicode=True, color=True))
