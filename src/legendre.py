@@ -73,7 +73,7 @@ class PolarizabilityBasis:
         # ys = ys[:n_points]
         # end limit
         basis_idx = list(range(n_basis))
-        A = np.zeros((2 * n_points, 9 * n_basis**6))
+        A = np.zeros((3 * n_points, 9 * n_basis**6))
 
         col = 0
         for i, j, b_1, b_2, b_3, b_4, b_5, b_6 in it.product(
@@ -95,13 +95,23 @@ class PolarizabilityBasis:
 
             A[:n_points, col] = p
 
+            # force symmetry alpha(r, rp) == alpha(rp, r), zero-pad ys
             pleft = 1
             pright = 1
             for k, basisindex in enumerate(bs):
                 pleft *= self._basis[basisindex](xs[:, k])
             for k, basisindex in enumerate(list(bs[3:]) + list(bs[:3])):
                 pright *= self._basis[basisindex](xs[:, k])
-            A[n_points:, col] = pleft - pright
+            A[n_points : 2 * n_points, col] = pleft - pright
+
+            # force symmetry a_ij = a_ji, zero-pad ys
+            if i > j:
+                prefactor = 1
+            if j > i:
+                prefactor = -1
+            if i == j:
+                prefactor = 0
+            A[2 * n_points :, col] = prefactor * pleft
 
             col += 1
 
@@ -178,3 +188,4 @@ if __name__ == "__main__":
 
     print(profiler.output_text(unicode=True, color=True))
 # a_ij = a_ji tensor symmetric
+# force symmetry for all columns, not those with deriv=0
