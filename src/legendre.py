@@ -80,20 +80,6 @@ class PolarizabilityBasis:
             *([range(3)] * 2), *([basis_idx] * 6)
         ):
             bs = b_1, b_2, b_3, b_4, b_5, b_6
-            if self._derivs[bs[i]] is None or self._derivs[bs[j]] is None:
-                col += 1
-                continue
-
-            d1 = self._derivs[bs[i]](xs[:, i])
-            d2 = self._derivs[bs[j]](xs[:, j])
-            p = d1 * d2
-            for k in range(3):
-                if k != i:
-                    p *= self._basis[bs[k]](xs[:, k])
-                if k != j:
-                    p *= self._basis[bs[3 + k]](xs[:, 3 + k])
-
-            A[:n_points, col] = p
 
             # force symmetry alpha(r, rp) == alpha(rp, r), zero-pad ys
             pleft = 1
@@ -113,6 +99,20 @@ class PolarizabilityBasis:
                 prefactor = 0
             A[2 * n_points :, col] = prefactor * pleft
 
+            # actual susceptibility fit
+            if self._derivs[bs[i]] is not None and self._derivs[bs[j]] is not None:
+                d1 = self._derivs[bs[i]](xs[:, i])
+                d2 = self._derivs[bs[j]](xs[:, j])
+                p = d1 * d2
+                for k in range(3):
+                    if k != i:
+                        p *= self._basis[bs[k]](xs[:, k])
+                    if k != j:
+                        p *= self._basis[bs[3 + k]](xs[:, 3 + k])
+
+                A[:n_points, col] = p
+
+            # move counter
             col += 1
 
         # solve
@@ -187,5 +187,3 @@ if __name__ == "__main__":
     profiler.stop()
 
     print(profiler.output_text(unicode=True, color=True))
-# a_ij = a_ji tensor symmetric
-# force symmetry for all columns, not those with deriv=0
