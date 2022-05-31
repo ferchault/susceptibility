@@ -116,23 +116,10 @@ class PolarizabilityBasis:
             col += 1
 
         # solve
-        return A, ys
-        solution, res, rank, s = np.linalg.lstsq(A, ys)
+        ys = np.concatenate((ys, ys * 0, ys * 0))
+        solution, res, rank, s = np.linalg.lstsq(A, ys, rcond=None)
         residuals = A @ solution - ys
-        return np.linalg.norm(residuals), np.linalg.norm(ys)
-
-        #     col += 1
-        # print (col, A.shape)
-        # # solve
-        # return A
-        # # return A, ys
-        # ys = np.concatenate((ys, ys * 0))
-        # print("solving")
-        # solution, res, rank, s = np.linalg.lstsq(A, ys, rcond=None)
-        # residuals = A @ solution - ys
-        # print(np.linalg.norm(residuals), np.linalg.norm(ys))
-
-        # return res
+        print(np.linalg.norm(residuals), np.linalg.norm(ys))
 
 
 # %%
@@ -174,16 +161,16 @@ def test():
     print(derivs)
     print("Fitting")
     P = PolarizabilityBasis(legs, derivs)
-    return P.fit(points, chi)
+    P.fit(points, chi)
 
 
 #%%
 if __name__ == "__main__":
-    from pyinstrument import Profiler
+    # from pyinstrument import Profiler
 
-    profiler = Profiler()
-    profiler.start()
+    # profiler = Profiler()
+    # profiler.start()
     test()
-    profiler.stop()
+    # profiler.stop()
 
-    print(profiler.output_text(unicode=True, color=True))
+    # print(profiler.output_text(unicode=True, color=True))
