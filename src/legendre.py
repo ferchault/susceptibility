@@ -41,6 +41,11 @@ class Legendre1D:
         plt.plot(xs, L.evaluate(xs))
 
 
+import pyscf.dft
+import pyscf.gto
+import tqdm
+
+
 class PolarizabilityBasis:
     def __init__(
         self,
@@ -54,6 +59,60 @@ class PolarizabilityBasis:
             if derivative == np.poly1d([0]):
                 derivative = None
             self._derivs.append(derivative)
+
+    def response_basis_set(self, refbasis, element, scale):
+        uncontracted = pyscf.gto.uncontract(pyscf.gto.load(refbasis, element))
+        basis = []
+        for basisfunction in uncontracted:
+            basisfunction[1][0] *= scale
+            basis.append(basisfunction)
+        molresp = pyscf.gto.M(
+            atom=f"H 0 0 0",
+            basis={"H": basis},
+            spin=1,
+            verbose=0,
+        )
+        self._molresp = molresp
+
+    def fit_ao_basis(self, points):
+        derivs = pyscf.dft.numint.eval_ao(
+            self._molresp, points, deriv=1
+        )  # [0, x, y, z]:[pts]:[nao]
+
+        ncoords = len(points)
+        nao = self._molresp.nao
+        A = np.zeros((ncoords**2, 9 * nao**2))
+        ys = np.zeros(ncoords**2)
+        for i, j in it.product(range(3), range(3)):
+            label = f"A_{i},{j}"
+            row = 0
+            for r, rprime in tqdm.tqdm(
+                it.product(range(ncoords), range(ncoords)),
+                total=ncoords**2,
+                desc=label,
+                leave=False,
+            ):
+                if i == 0 and j == 0:
+                    ys[row] = exact.nonlocal_susceptibility(
+                        points[r], points[rprime], 1
+                    )
+
+                left = derivs[i + 1, r, :]
+                right = derivs[j + 1, rprime, :]
+                A[row, (i * 3 + j) * nao**2 : (i * 3 + j + 1) * nao**2] = np.outer(
+                    left, right
+                ).reshape(-1)
+
+                row += 1
+
+        # filter
+        mask = np.isfinite(ys)
+        ys = ys[mask]
+        A = A[mask, :]
+        solution, res, rank, s = np.linalg.lstsq(A, ys, rcond=None)
+        residuals = A @ solution - ys
+        print(np.linalg.norm(residuals), np.linalg.norm(ys))
+        return solution
 
     def fit(self, points: Iterable[Iterable[float]], susceptibilities: Iterable[float]):
         xs = np.array(points)
@@ -161,7 +220,66 @@ def test():
     print(derivs)
     print("Fitting")
     P = PolarizabilityBasis(legs, derivs)
-    P.fit(points, chi)
+    # P.fit(points, chi)
+    P.response_basis_set("def2-TZVP", "C", 2)
+    return P.fit_ao_basis(coords)
+
+
+def to_points(phi: float, magr: float, magrp: float):
+    return np.array((magr, 0, 0)), np.array(
+        (np.cos(phi) * magrp, np.sin(phi) * magrp, 0)
+    )
+
+
+def to_value(mol, rs, rps, i, j, solution):
+    nao = mol.nao
+    ijsolution = solution[(i * 3 + j) * nao**2 : (i * 3 + j + 1) * nao**2]
+    xaovalue = pyscf.dft.numint.eval_ao(mol, rs, deriv=0)
+    yaovalue = pyscf.dft.numint.eval_ao(mol, rps, deriv=0)
+    print(ijsolution.shape, xaovalue.shape, yaovalue.shape)
+    values = []
+    for idx in range(len(rs)):
+        values.append(
+            np.sum(ijsolution * np.outer(xaovalue[idx], yaovalue[idx]).reshape(-1))
+        )
+    return np.array(values)
+
+
+def do_panel(ax, i, j, angle, solution):
+    N = 100
+    mags = np.linspace(0, 0.5, N)
+    xs = np.repeat(mags, N)
+    ys = np.tile(mags, N)
+    rs, rps = np.zeros((N * N, 3)), np.zeros((N * N, 3))
+    rs[:, 0] = xs
+    rps[:, 0] = np.cos(angle) * ys
+    rps[:, 1] = np.sin(angle) * ys
+    P = PolarizabilityBasis([], [])
+    P.response_basis_set("def2-TZVP", "C", 2)
+    values = to_value(P._molresp, rs, rps, i, j, solution)
+    print(min(values), max(values))
+    # plt.imshow(values.reshape(N, N), cmap="Blues", vmin=-5)
+    # levels = np.percentile(values, np.arange(0, 110, 10))
+    levels = np.linspace(np.percentile(values, 0.1), max(values), 8)
+
+    print(levels)
+    ax.contourf(values.reshape(N, N), levels, cmap="Blues_r")
+    # plt.colorbar()
+
+
+def do_panels(solution):
+    f, axs = plt.subplots(5, 9, sharex=True, sharey=True)
+    ivals = np.repeat((0, 1, 2), 3)
+    jvals = np.tile((0, 1, 2), 3)
+    angles = (0, 45, 90, 135, 180)
+    for row in range(5):
+        for col in range(9):
+            do_panel(axs[row, col], ivals[col], jvals[col], angles[row], solution)
+            axs[row, col].set_xticks([])
+            axs[row, col].set_yticks([])
+
+    plt.subplots_adjust(wspace=0, hspace=0)
+    plt.savefig("panels.svg")
 
 
 #%%
@@ -170,7 +288,8 @@ if __name__ == "__main__":
 
     # profiler = Profiler()
     # profiler.start()
-    test()
+    solution = test()
+    do_panels(solution)
     # profiler.stop()
 
     # print(profiler.output_text(unicode=True, color=True))
