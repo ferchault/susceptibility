@@ -54,7 +54,8 @@ class ResponseCalculator:
 
         return D_j, B_j
 
-    def build_susceptibility(self, coords: np.ndarray):
+    def build_susceptibility(self, coords: np.ndarray, fit_mol):
+        self._molresp = fit_mol
         if file_exists("chi.npy"):
             self._Qvec = np.load("chi.npy")
         else:
@@ -89,10 +90,10 @@ class ResponseCalculator:
         # return np.sum(self._Q * np.outer(beta_k, beta_l))
         return np.dot(self._Qvec, np.outer(beta_k, beta_l).reshape(-1))
 
-    def build_polarizability(self, coords: np.ndarray, regularizer):
-        self._A = np.zeros((3, 3, self._molresp.nao, self._molresp.nao))
+    def build_polarizability(self, coords: np.ndarray, alpha_mol):
+        self._A = np.zeros((3, 3, alpha_mol.nao, alpha_mol.nao))
         derivs = pyscf.dft.numint.eval_ao(
-            self._molresp, coords, deriv=1
+            alpha_mol, coords, deriv=1
         )  # [0, x, y, z]:[pts]:[nao]
 
         ncoords = len(coords)
@@ -115,10 +116,10 @@ class ResponseCalculator:
             # lstsq = npl.lstsq(B, D, rcond=None)
             B = np.array(B)
             D = np.array(D)
-            lstsq = regularized_least_squares(B, D, regularizer)
+            lstsq = regularized_least_squares(B, D, 1e-7)
             res = (np.sqrt((D - B @ lstsq[0]) ** 2).mean()) / np.abs(D).mean()
             print(f"{label}: Average relative residual {res*100:8.3f} %")
-            A = lstsq[0].reshape(self._molresp.nao, self._molresp.nao)
+            A = lstsq[0].reshape(alpha_mol.nao, alpha_mol.nao)
             self._A[i, j, :, :] = A
 
     def evaluate_polarizability(self, r: np.ndarray, rprime: np.ndarray) -> float:
@@ -134,27 +135,21 @@ class ResponseCalculator:
         ao_integrals = np.dot(self._grid.weights, basis_set_values)
         return ao_integrals
 
-    def response_basis_set(self, refbasis, element, scale):
-        uncontracted = pyscf.gto.uncontract(pyscf.gto.load(refbasis, element))
-        basis = []
-        for basisfunction in uncontracted:
-            basisfunction[1][0] *= scale
-            basis.append(basisfunction)
-        molresp = pyscf.gto.M(
-            atom=f"H 0 0 0",
-            # atom=f"N 0 0 0; N 0 0 1",
-            # basis="unc-def2-TZVP",
-            basis={"H": basis},
-            spin=1,
-            verbose=0,
-        )
-        self._molresp = molresp
 
-
-def real_space_scan(responsebasis, responseelement, responsescale, regularizer):
+def real_space_scan():
     mol = pyscf.gto.M(
         atom=f"He 0 0 0",
-        basis="def2-TZVPP",
+        basis="def2-TZVP",
+        verbose=0,
+    )
+    chi_mol = pyscf.gto.M(
+        atom=f"He 0 0 0",
+        basis="unc-def2-TZVPP",
+        verbose=0,
+    )
+    alpha_mol = pyscf.gto.M(
+        atom=f"He 0 0 0",
+        basis="unc-cc-pVTZ",
         verbose=0,
     )
 
@@ -168,22 +163,11 @@ def real_space_scan(responsebasis, responseelement, responsescale, regularizer):
     npts = grid.coords.shape[0]
     idx = np.random.choice(npts, 300, replace=False)
 
-    rc.response_basis_set(responsebasis, responseelement, responsescale)
-    rc.build_susceptibility(grid.coords, regularizer)
-
-    rc.build_polarizability(grid.coords[idx, :], 1e-6)
+    rc.build_susceptibility(grid.coords[idx, :], chi_mol)
+    rc.build_polarizability(grid.coords[idx, :], alpha_mol)
 
 
-default_params = {
-    "griddelta": 0.5,
-    "gridmin": 0.5,
-    "responsebasis": "cc-pVQZ",
-    "responseelement": "He",
-    "responsescale": 1,
-    "regularizer": 1e-9,
-}
-
-real_space_scan(**default_params)
+real_space_scan()
 
 # %%
 # separate mol basis for chi and alpha
