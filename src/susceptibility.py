@@ -1,30 +1,13 @@
-from calendar import c
+# %%
 import pyscf.scf
 import pyscf.gto
 import pyscf.dft
 import pyscf.qmmm
 import numpy as np
 import itertools as it
-import numpy.linalg as npl
 import tqdm
-import quadpy
-from scipy import integrate
 from scipy.sparse.linalg import lsqr
-from scipy.linalg import lstsq as scipy_lstsq
-import multiprocessing as mp
-import math
 from os.path import exists as file_exists
-
-
-def polar2cart(r, theta, phi):
-    return [
-         r * math.sin(theta) * math.cos(phi),
-         r * math.sin(theta) * math.sin(phi),
-         r * math.cos(theta)
-    ]
-
-def transformed_coulomb(s, coord, pos):
-    return np.exp(-(s**2) * np.linalg.norm(coord - pos) ** 2)
 
 
 def regularized_least_squares(A, y, lamb=0):
@@ -66,50 +49,37 @@ class ResponseCalculator:
         ao_value = pyscf.dft.numint.eval_ao(self._molresp, self._grid.coords, deriv=0)
         integrals = np.dot(ao_value.T, combined.T)
 
-        # alternative integral scheme
-
-        # weights = self._q * self._grid.weights * 2.0 / np.sqrt(np.pi)
-        # b_integral= []
-        # for ii in range(len(self._grid.coords)):
-        #    b_integral.append( integrate.quad(transformed_coulomb, 0.0, np.inf, args=(self._grid.coords[ii], pos))[0] )
-        # weights = weights * b_integral
-        # integral2 = np.dot(ao_value.T, weights.T)
-
-        # compare the two integrals
-        # print("new integral: ",integral2)
-        # print("old integral: ",integrals)
-
         B_j = np.outer(integrals, integrals).reshape(-1)
         D_j = self.get_energy_derivative(pos)
 
         return D_j, B_j
 
-    def build_susceptibility(self, coords: np.ndarray, regularizer: float):
-        if file_exists('chi.npy'):
-            self._Qvec = np.load('chi.npy')
+    def build_susceptibility(self, coords: np.ndarray):
+        if file_exists("chi.npy"):
+            self._Qvec = np.load("chi.npy")
         else:
             D = []
             B = []
 
             if len(coords) < self._molresp.nao:
-            # print("Would be underdetermined. Aborting.")
+                # print("Would be underdetermined. Aborting.")
                 raise ValueError("Underdetermined")
             for coord in tqdm.tqdm(coords, desc="Chi", leave=False):
-        #for coord in coords:
+                # for coord in coords:
                 D_j, B_j = self.get_derivative(coord)
                 D.append(D_j)
                 B.append(B_j)
             D = np.array(D)
             B = np.array(B)
 
-        # lstsq = regularized_least_squares(B, D, regularizer)
             lstsq = lsqr(B, D)
-        # lstsq = scipy_lstsq(B, D)
             res = (np.sqrt((D - B @ lstsq[0]) ** 2).mean()) / np.abs(D).mean()
-        # print(f"Chi:   Average relative residual {res*100:8.3f} %")
+            print(f"Chi:   Average relative residual {res*100:8.3f} %")
             self._Q = lstsq[0].reshape(self._molresp.nao, self._molresp.nao)
             self._Qvec = lstsq[0]
-            np.save('chi.npy', self._Qvec)
+            np.save("chi.npy", self._Qvec)
+            np.save("B.npy", B)
+            np.save("D.npy", D)
             return res
 
     def evaluate_susceptibility(self, r: np.ndarray, rprime: np.ndarray) -> float:
@@ -181,173 +151,40 @@ class ResponseCalculator:
         self._molresp = molresp
 
 
-def kwargwrapper(args):
-    try:
-        return do_case(**args)
-    except:
-        return None
-
-def real_space_scan(
-    griddelta, gridmin, responsebasis, responseelement, responsescale, regularizer
-):
+def real_space_scan(responsebasis, responseelement, responsescale, regularizer):
     mol = pyscf.gto.M(
         atom=f"He 0 0 0",
-        basis="def2-TZVP",
-        verbose=0,
-    )
-    scheme = quadpy.u3.schemes["lebedev_113"]()
-    radial = np.arange(gridmin, 5, griddelta)
-    coords = np.concatenate([scheme.points.T * _ for  _ in radial])
-    
-    rc = ResponseCalculator(mol, pyscf.scf.RHF)
-
-    rc.response_basis_set(responsebasis, responseelement, responsescale)
-    residual = rc.build_susceptibility(coords, regularizer)
-    # rc.build_polarizability(coords, 1e-7)
-
-    aoint = rc.get_ao_integrals()
-    chi = np.dot(rc._Qvec, np.outer(aoint, aoint).reshape(-1))
-    onepoint = rc.evaluate_susceptibility(np.array((0, 0, 0.5)), np.array((0, 0, 1)))
-    #return chi, onepoint, residual
-    minimum_coord=-4
-    step=0.1
-    xcoords, ycoords, vals = [], [], []
-    for xx in range(81):
-        for yy in range(81):
-            first_coordinate=(0,0,0)
-            second_coordinate=(0,minimum_coord+step*xx,minimum_coord+step*yy)
-            print(minimum_coord+step*xx, minimum_coord+step*yy, rc.evaluate_susceptibility(first_coordinate, second_coordinate))
-
-    #theta = [0, np.pi /4, np.pi/3, np.pi/2, np.pi]  # angle between the two vectors
-    #r = np.linspace(0.1, 5, 51) # span of the two vector ranges
-
-    # rudimentary grid loop
-    #for l in theta:
-     #   print("#### DOING THETA = ",l)
-      #  for rr in r:
-       #     for ii in range(len(r)):
-        #        first_coordinate = np.array((0,0,r[ii]))
-         #       second_coordinate = np.array((0,rr*math.sin(l),rr*math.cos(l)))
-
-
-
-def do_case(
-    griddelta, gridmin, responsebasis, responseelement, responsescale, regularizer
-):
-    mol = pyscf.gto.M(
-        atom=f"He 0 0 0",
-        basis="def2-TZVP",
+        basis="def2-TZVPP",
         verbose=0,
     )
 
-    # uniform cubic grid
-    # N = gridN
-    # delta = griddelta
-    # x = np.linspace(-delta, delta, N)
-    # coords = np.array(np.meshgrid(*[x] * 3)).reshape(3, -1).T
-    # lebedev grid
+    grid = pyscf.dft.gen_grid.Grids(mol)
+    grid.level = 1
+    grid.build()
 
-    scheme = quadpy.u3.schemes["lebedev_113"]()
-    
-    coords = np.concatenate([scheme.points.T * _ for _ in radial])
-
-    # collect data
     rc = ResponseCalculator(mol, pyscf.scf.RHF)
+
+    # random grid subset
+    npts = grid.coords.shape[0]
+    idx = np.random.choice(npts, 300, replace=False)
+
     rc.response_basis_set(responsebasis, responseelement, responsescale)
-    residual = rc.build_susceptibility(coords, regularizer)
-    # rc.build_polarizability(coords, 1e-7)
+    rc.build_susceptibility(grid.coords, regularizer)
 
-    aoint = rc.get_ao_integrals()
-    chi = np.dot(rc._Qvec, np.outer(aoint, aoint).reshape(-1))
-    onepoint = rc.evaluate_susceptibility(np.array((0, 0, 0.5)), np.array((0, 0, 1)))
-    return chi, onepoint, residual
-    # alpha = np.sum(rc._A * np.outer(aoint, aoint), axis=(2, 3))
-    print(
-        "chi = :",
-        chi,
-        " . If this value is not close to zero, then something is wrong! ",
-    )
-    # print("alpha = :", alpha)
-
-    print(
-        "chitest",
-        rc.evaluate_susceptibility(np.array((0, 0, 0)), np.array((0, 0, 0.1))),
-    )
-    # print(
-    #     "alphatest",
-    #     rc.evaluate_polarizability(np.array((0, 0, 0)), np.array((0, 0, 0.1))),
-    # )
+    rc.build_polarizability(grid.coords[idx, :], 1e-6)
 
 
-def scan_parameters():
-    options = {
-        "gridmin": [
-            0.5,
-        ],  # gridmax is hard coded
-        "griddelta": [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1],
-        "responsebasis": "cc-pVTZ".split(),
-        "responseelement": ["He"],
-        "responsescale": [
-            2,
-        ],
-        "regularizer": [1e-9],
-    }
-    starting = {
-        "gridmin": 0.5,
-        "griddelta": 0.5,
-        "responsebasis": "cc-pVTZ",
-        "responseelement": "He",
-        "responsescale": 2,
-        "regularizer": 1e-9,
-    }
-    cases = [starting.copy()]
-    for scanarg in options.keys():
-        # print("#" * 20, scanarg)
-        args = starting.copy()
-        for argval in options[scanarg]:
-            if argval == starting[scanarg]:
-                continue
-            args[scanarg] = argval
-            cases.append(args.copy())
+default_params = {
+    "griddelta": 0.5,
+    "gridmin": 0.5,
+    "responsebasis": "cc-pVQZ",
+    "responseelement": "He",
+    "responsescale": 1,
+    "regularizer": 1e-9,
+}
 
-    with mp.Pool() as pool:
-        results = list(tqdm.tqdm(pool.imap(kwargwrapper, cases), total=len(cases)))
+real_space_scan(**default_params)
 
-    print("Starting")
-    print(starting)
-    print(" " * 20 + "value     | CHI=0 | RES=0 | PT=const")
-    for case, result in zip(cases, results):
-        special = set(case.items()) - set(starting.items())
-        if len(special) == 0:
-            special = "starting"
-        else:
-            special = " ".join(map(str, list(special)[0]))
-        if result is None:
-            print(f"{special:>30}: did not finish")
-            continue
-        chi, onepoint, residual = result
-        print(f"{special:>30}: {chi:.2E} {residual:.2E} {onepoint:.2E}")
-
-
-if __name__ == "__main__":
-    #scan_parameters()
-    default_params = {
-        "griddelta": 0.5,
-        "gridmin": 0.5,
-        "responsebasis": "cc-pVTZ",
-        "responseelement": "He",
-        "responsescale": 2,
-        "regularizer": 1e-9,
-    }
-
-    real_space_scan(**default_params)
-
-    # rudimentary grid loop
-    #for l in theta:
-     #   for rr in r:
-     #       for ii in range(len(r)):
-     #           first_coordinate = np.array((0,0,r[ii]))
-     #           second_coordinate = np.array((0,rr*math.sin(l),rr*math.cos(l)))
-     #           print(real_space_scan(first_coordinate, second_coordinate, **default_params))
-
-    #griddelta, gridmin, responsebasis, responseelement, responsescale, regularizer
+# %%
+# separate mol basis for chi and alpha
+# compare derivatives of orbitals to FD
