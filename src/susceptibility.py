@@ -121,6 +121,7 @@ class ResponseCalculator:
             print(f"{label}: Average relative residual {res*100:8.3f} %")
             A = lstsq[0].reshape(alpha_mol.nao, alpha_mol.nao)
             self._A[i, j, :, :] = A
+            return res * 100
 
     def evaluate_polarizability(self, r: np.ndarray, rprime: np.ndarray) -> float:
         coords = np.array((r, rprime))
@@ -147,9 +148,62 @@ def real_space_scan():
         basis="unc-def2-TZVPP",
         verbose=0,
     )
+    # basis = [
+    #    [0, [2.0 ** bs[0], 1]],
+    #    [0, [2.0 ** bs[1], 1]],
+    #    [0, [2.0 ** bs[2], 1]],
+    #    [0, [2.0 ** bs[3], 1]],
+    #    [1, [2.0 ** bs[4], 1]],
+    #    [1, [2.0 ** bs[5], 1]],
+    #    [1, [2.0 ** bs[6], 1]],
+    #    [1, [2.0 ** bs[7], 1]],
+    #    [2, [2.0 ** bs[8], 1]],
+    #    [2, [2.0 ** bs[9], 1]],
+    #    [2, [2.0 ** bs[10], 1]],
+    #    [2, [2.0 ** bs[11], 1]],
+    # ]
+    basis = [
+        [1, [2.0**3, 1]],
+        [1, [2.0**5, 1]],
+        [1, [2.0**8, 1]],
+        [1, [2.0**12, 1]],
+        # [1, [2.0**14, 1]],
+        [3, [2.0**3, 1]],
+        [3, [2.0**5, 1]],
+        [3, [2.0**8, 1]],
+        [3, [2.0**12, 1]],
+        # [3, [2.0**14, 1]],
+        [5, [2.0**3, 1]],
+        [5, [2.0**5, 1]],
+        [5, [2.0**8, 1]],
+        [5, [2.0**12, 1]],
+        # [5, [2.0**14, 1]],
+        # [3, [2.0**5, 1]],
+        # [3, [2.0**1, 1]],
+    ]
+    basis = [
+        [0, [2.0**3, 1]],
+        [0, [2.0**5, 1]],
+        [0, [2.0**8, 1]],
+        [0, [2.0**12, 1]],
+        # [1, [2.0**14, 1]],
+        [2, [2.0**3, 1]],
+        [2, [2.0**5, 1]],
+        [2, [2.0**8, 1]],
+        [2, [2.0**12, 1]],
+        # [3, [2.0**14, 1]],
+        [4, [2.0**3, 1]],
+        [4, [2.0**5, 1]],
+        [4, [2.0**8, 1]],
+        [4, [2.0**12, 1]],
+        # [5, [2.0**14, 1]],
+        # [3, [2.0**5, 1]],
+        # [3, [2.0**1, 1]],
+    ]
     alpha_mol = pyscf.gto.M(
-        atom=f"He 0 0 0",
-        basis="unc-cc-pVTZ",
+        atom=f"H 0 0 0",
+        basis={"H": basis},
+        spin=1,
         verbose=0,
     )
 
@@ -161,14 +215,75 @@ def real_space_scan():
 
     # random grid subset
     npts = grid.coords.shape[0]
-    idx = np.random.choice(npts, 300, replace=False)
+    idx = np.random.choice(npts, 200, replace=False)
 
     rc.build_susceptibility(grid.coords[idx, :], chi_mol)
-    rc.build_polarizability(grid.coords[idx, :], alpha_mol)
+    return rc.build_polarizability(grid.coords[idx, :], alpha_mol)
 
 
 real_space_scan()
 
+best = 10
+best_point = None
+
+
+def avgs(x0):
+    global best, best_point
+    x = np.average([real_space_scan(x0) for _ in range(5)])
+    if x < best:
+        best = x
+        best_point = x0
+    print(best, best_point)
+    return x
+
+
+from scipy.optimize import differential_evolution
+
+# x0 = (14, 12, 5, 3, 14, 10, 5, 3, 14, 12, 10, 8)
+# res = minimize(avgs, x0, options={"maxiter": 10})
+# print(res)
+
+# bounds = [(2, 8)] * 12
+# result = differential_evolution(avgs, bounds, maxiter=10, workers=1)
+# print(result)
+
+# print(real_space_scan((3, 4, 5, 6, 8, 4, 5, 6, 3, 4, 5, 12)))
 # %%
 # separate mol basis for chi and alpha
 # compare derivatives of orbitals to FD
+[
+    [0, [27150.699364, 1]],
+    [0, [4070.466736, 1]],
+    [0, [926.45124718, 1]],
+    [0, [262.40039196, 1]],
+    [0, [85.706031782, 1]],
+    [0, [31.168371532, 1]],
+    [0, [12.4134277016, 1]],
+    [0, [5.1529793054, 1]],
+    [0, [1.15392678838, 1]],
+    [0, [0.45945662716, 1]],
+    [0, [0.190328880056, 1]],
+    [1, [27150.699364, 1]],
+    [1, [4070.466736, 1]],
+    [1, [926.45124718, 1]],
+    [1, [262.40039196, 1]],
+    [1, [85.706031782, 1]],
+    [1, [31.168371532, 1]],
+    [1, [12.4134277016, 1]],
+    [1, [5.1529793054, 1]],
+    [1, [1.15392678838, 1]],
+    [1, [0.45945662716, 1]],
+    [1, [0.190328880056, 1]],
+    [2, [2.194, 1]],
+    [2, [0.636, 1]],
+    [3, [1.522, 1]],
+]
+
+# %%
+# [11.86094665  5.06935174  8.46099175 10.52933808
+# 6.80437205  5.06042316 3.6513395   2.47137537
+#   4.73135485  8.1781946   1.72571595  6.98567145]
+
+# [ 6.86462741  7.50794078  8.46099175 10.15008919
+# 6.80437205  5.43153594  3.29936681  3.19266769
+#   10.1487846   6.48407154  8.4297509   2.87228208]
