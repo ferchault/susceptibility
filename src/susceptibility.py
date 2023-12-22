@@ -95,6 +95,7 @@ class ResponseCalculator:
         derivs = pyscf.dft.numint.eval_ao(
             alpha_mol, coords, deriv=1
         )  # [0, x, y, z]:[pts]:[nao]
+        print(derivs.shape, alpha_mol.nao)
 
         ncoords = len(coords)
         for i, j in it.product(range(3), range(3)):
@@ -116,6 +117,7 @@ class ResponseCalculator:
             # lstsq = npl.lstsq(B, D, rcond=None)
             B = np.array(B)
             D = np.array(D)
+            print(B.shape, D.shape)
             lstsq = regularized_least_squares(B, D, 1e-7)
             res = (np.sqrt((D - B @ lstsq[0]) ** 2).mean()) / np.abs(D).mean()
             print(f"{label}: Average relative residual {res*100:8.3f} %")
@@ -181,25 +183,6 @@ def real_space_scan():
         # [3, [2.0**5, 1]],
         # [3, [2.0**1, 1]],
     ]
-    basis = [
-        [0, [2.0**3, 1]],
-        [0, [2.0**5, 1]],
-        [0, [2.0**8, 1]],
-        [0, [2.0**12, 1]],
-        # [1, [2.0**14, 1]],
-        [2, [2.0**3, 1]],
-        [2, [2.0**5, 1]],
-        [2, [2.0**8, 1]],
-        [2, [2.0**12, 1]],
-        # [3, [2.0**14, 1]],
-        [4, [2.0**3, 1]],
-        [4, [2.0**5, 1]],
-        [4, [2.0**8, 1]],
-        [4, [2.0**12, 1]],
-        # [5, [2.0**14, 1]],
-        # [3, [2.0**5, 1]],
-        # [3, [2.0**1, 1]],
-    ]
     alpha_mol = pyscf.gto.M(
         atom=f"H 0 0 0",
         basis={"H": basis},
@@ -210,15 +193,16 @@ def real_space_scan():
     grid = pyscf.dft.gen_grid.Grids(mol)
     grid.level = 1
     grid.build()
+    coords = grid.coords[np.linalg.norm(grid.coords, axis=1) < 5]
 
     rc = ResponseCalculator(mol, pyscf.scf.RHF)
 
     # random grid subset
-    npts = grid.coords.shape[0]
+    npts = coords.shape[0]
     idx = np.random.choice(npts, 200, replace=False)
 
     rc.build_susceptibility(grid.coords[idx, :], chi_mol)
-    return rc.build_polarizability(grid.coords[idx, :], alpha_mol)
+    return rc.build_polarizability(coords[idx, :], alpha_mol)
 
 
 real_space_scan()
