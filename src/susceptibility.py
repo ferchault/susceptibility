@@ -8,6 +8,7 @@ import itertools as it
 import tqdm
 from scipy.sparse.linalg import lsqr
 from os.path import exists as file_exists
+import time
 
 '''
 Basis set results
@@ -106,10 +107,7 @@ Chi:   Average relative residual    0.697 %
 A_0,0: Average relative residual    3.353 %
 
 
-
-
 '''
-
 
 def regularized_least_squares(A, y, lamb=0):
     n_col = A.shape[1]
@@ -166,7 +164,8 @@ class ResponseCalculator:
             if len(coords) < self._molresp.nao:
                 # print("Would be underdetermined. Aborting.")
                 raise ValueError("Underdetermined")
-            for coord in tqdm.tqdm(coords, desc="Chi", leave=False):
+            #for coord in tqdm.tqdm(coords, desc="Chi", leave=False):
+            for coord in coords:
                 # for coord in coords:
                 D_j, B_j = self.get_derivative(coord)
                 D.append(D_j)
@@ -192,38 +191,43 @@ class ResponseCalculator:
         return np.dot(self._Qvec, np.outer(beta_k, beta_l).reshape(-1))
 
     def build_polarizability(self, coords: np.ndarray, alpha_mol):
-        self._A = np.zeros((3, 3, alpha_mol.nao, alpha_mol.nao))
-        derivs = pyscf.dft.numint.eval_ao(
-            alpha_mol, coords, deriv=1
-        )  # [0, x, y, z]:[pts]:[nao]
-        print(derivs.shape, alpha_mol.nao)
+        if file_exists("A.npy"):
+            self._A = np.load("A.npy")
+        else:
+            self._A = np.zeros((3, 3, alpha_mol.nao, alpha_mol.nao))
+            derivs = pyscf.dft.numint.eval_ao(
+                alpha_mol, coords, deriv=1
+            )  # [0, x, y, z]:[pts]:[nao]
+            #print(derivs.shape, alpha_mol.nao)
 
-        ncoords = len(coords)
-        for i, j in it.product(range(3), range(3)):
-            B = []
-            D = []
-            label = f"A_{i},{j}"
-            for r, rprime in tqdm.tqdm(
-                it.product(range(ncoords), range(ncoords)),
-                total=ncoords**2,
-                desc=label,
-                leave=False,
-            ):
-                D.append(self.evaluate_susceptibility(coords[r], coords[rprime]))
+            ncoords = len(coords)
+            for i, j in it.product(range(3), range(3)):
+                B = []
+                D = []
+                label = f"A_{i},{j}"
+            #for r, rprime in tqdm.tqdm(
+            #    it.product(range(ncoords), range(ncoords)),
+            #    total=ncoords**2,
+            #    desc=label,
+            #    leave=False,
+            #):
+                for r, rprime in it.product(range(ncoords), range(ncoords)):
+                    D.append(self.evaluate_susceptibility(coords[r], coords[rprime]))
 
-                left = derivs[i + 1, r, :]
-                right = derivs[j + 1, rprime, :]
-                B.append(np.outer(left, right).reshape(-1))
+                    left = derivs[i + 1, r, :]
+                    right = derivs[j + 1, rprime, :]
+                    B.append(np.outer(left, right).reshape(-1))
 
             # lstsq = npl.lstsq(B, D, rcond=None)
-            B = np.array(B)
-            D = np.array(D)
-            print(B.shape, D.shape)
-            lstsq = regularized_least_squares(B, D, 1e-7)
-            res = (np.sqrt((D - B @ lstsq[0]) ** 2).mean()) / np.abs(D).mean()
-            print(f"{label}: Average relative residual {res*100:8.3f} %")
-            A = lstsq[0].reshape(alpha_mol.nao, alpha_mol.nao)
-            self._A[i, j, :, :] = A
+                B = np.array(B)
+                D = np.array(D)
+                #print(B.shape, D.shape)
+                lstsq = regularized_least_squares(B, D, 1e-7)
+                res = (np.sqrt((D - B @ lstsq[0]) ** 2).mean()) / np.abs(D).mean()
+                print(f"{label}: Average relative residual {res*100:8.3f} %")
+                A = lstsq[0].reshape(alpha_mol.nao, alpha_mol.nao)
+                self._A[i, j, :, :] = A
+            np.save("A.npy",self._A)
             return res * 100
 
     def evaluate_polarizability(self, r: np.ndarray, rprime: np.ndarray) -> float:
@@ -266,24 +270,25 @@ def real_space_scan():
     #    [2, [2.0 ** bs[11], 1]],
     # ]
     basis = [
+        [1, [2.0**2, 1]],
         [1, [2.0**3, 1]],
+        [1, [2.0**4, 1]],
         [1, [2.0**5, 1]],
-        [1, [2.0**8, 1]],
-        [1, [2.0**12, 1]],
-        # [1, [2.0**14, 1]],
+        [1, [2.0**6, 1]],
+
+        [3, [2.0**2, 1]],
         [3, [2.0**3, 1]],
+        [3, [2.0**4, 1]],
         [3, [2.0**5, 1]],
-        [3, [2.0**8, 1]],
-        [3, [2.0**12, 1]],
-        # [3, [2.0**14, 1]],
+        [3, [2.0**6, 1]],
+
+        [5, [2.0**2, 1]],
         [5, [2.0**3, 1]],
+        [5, [2.0**4, 1]],
         [5, [2.0**5, 1]],
-        [5, [2.0**8, 1]],
-        [5, [2.0**12, 1]],
-        # [5, [2.0**14, 1]],
-        # [3, [2.0**5, 1]],
-        # [3, [2.0**1, 1]],
+        [5, [2.0**6, 1]],
     ]
+    #print(basis)
     alpha_mol = pyscf.gto.M(
         atom=f"H 0 0 0",
         basis={"H": basis},
@@ -305,12 +310,14 @@ def real_space_scan():
     rc.build_susceptibility(grid.coords[idx, :], chi_mol)
     return rc.build_polarizability(coords[idx, :], alpha_mol)
 
+start_time = time.time()
 
 real_space_scan()
 
 best = 10
 best_point = None
 
+print(time.time() - start_time, "seconds")
 
 def avgs(x0):
     global best, best_point
