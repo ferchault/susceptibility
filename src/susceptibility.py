@@ -191,6 +191,7 @@ class ResponseCalculator:
         return np.dot(self._Qvec, np.outer(beta_k, beta_l).reshape(-1))
 
     def build_polarizability(self, coords: np.ndarray, alpha_mol):
+        self._polresp = alpha_mol
         if file_exists("A.npy"):
             self._A = np.load("A.npy")
         else:
@@ -232,7 +233,7 @@ class ResponseCalculator:
 
     def evaluate_polarizability(self, r: np.ndarray, rprime: np.ndarray) -> float:
         coords = np.array((r, rprime))
-        beta_k, beta_l = pyscf.dft.numint.eval_ao(self._molresp, coords, deriv=0)
+        beta_k, beta_l = pyscf.dft.numint.eval_ao(self._polresp, coords, deriv=0)
 
         return np.sum(self._A * np.outer(beta_k, beta_l), axis=(2, 3))
 
@@ -308,28 +309,38 @@ def real_space_scan():
     idx = np.random.choice(npts, 200, replace=False)
 
     rc.build_susceptibility(grid.coords[idx, :], chi_mol)
-    return rc.build_polarizability(coords[idx, :], alpha_mol)
+    rc.build_polarizability(coords[idx, :], alpha_mol)
+    return rc
 
+
+##############################################################################
 start_time = time.time()
 
-real_space_scan()
+nlPol = real_space_scan() # Sets up the response calculator
 
-best = 10
-best_point = None
+print(nlPol.evaluate_polarizability((0.0, 0.1, 0.5), (0.1, 0.3, 0.8)))
 
 print(time.time() - start_time, "seconds")
 
-def avgs(x0):
-    global best, best_point
-    x = np.average([real_space_scan(x0) for _ in range(5)])
-    if x < best:
-        best = x
-        best_point = x0
-    print(best, best_point)
-    return x
+
+###############################################################################
+#NOTES BELOW
+################################################################################
+#best = 10
+#best_point = None
 
 
-from scipy.optimize import differential_evolution
+#def avgs(x0):
+#    global best, best_point
+#    x = np.average([real_space_scan(x0) for _ in range(5)])
+#    if x < best:
+#        best = x
+#        best_point = x0
+#    print(best, best_point)
+#    return x
+
+
+#from scipy.optimize import differential_evolution
 
 # x0 = (14, 12, 5, 3, 14, 10, 5, 3, 14, 12, 10, 8)
 # res = minimize(avgs, x0, options={"maxiter": 10})
@@ -343,33 +354,33 @@ from scipy.optimize import differential_evolution
 # %%
 # separate mol basis for chi and alpha
 # compare derivatives of orbitals to FD
-[
-    [0, [27150.699364, 1]],
-    [0, [4070.466736, 1]],
-    [0, [926.45124718, 1]],
-    [0, [262.40039196, 1]],
-    [0, [85.706031782, 1]],
-    [0, [31.168371532, 1]],
-    [0, [12.4134277016, 1]],
-    [0, [5.1529793054, 1]],
-    [0, [1.15392678838, 1]],
-    [0, [0.45945662716, 1]],
-    [0, [0.190328880056, 1]],
-    [1, [27150.699364, 1]],
-    [1, [4070.466736, 1]],
-    [1, [926.45124718, 1]],
-    [1, [262.40039196, 1]],
-    [1, [85.706031782, 1]],
-    [1, [31.168371532, 1]],
-    [1, [12.4134277016, 1]],
-    [1, [5.1529793054, 1]],
-    [1, [1.15392678838, 1]],
-    [1, [0.45945662716, 1]],
-    [1, [0.190328880056, 1]],
-    [2, [2.194, 1]],
-    [2, [0.636, 1]],
-    [3, [1.522, 1]],
-]
+#[
+#    [0, [27150.699364, 1]],
+#    [0, [4070.466736, 1]],
+#    [0, [926.45124718, 1]],
+#    [0, [262.40039196, 1]],
+#    [0, [85.706031782, 1]],
+#    [0, [31.168371532, 1]],
+#    [0, [12.4134277016, 1]],
+#    [0, [5.1529793054, 1]],
+#    [0, [1.15392678838, 1]],
+#    [0, [0.45945662716, 1]],
+#    [0, [0.190328880056, 1]],
+#    [1, [27150.699364, 1]],
+#    [1, [4070.466736, 1]],
+#    [1, [926.45124718, 1]],
+#    [1, [262.40039196, 1]],
+#    [1, [85.706031782, 1]],
+#    [1, [31.168371532, 1]],
+#    [1, [12.4134277016, 1]],
+#    [1, [5.1529793054, 1]],
+#    [1, [1.15392678838, 1]],
+#    [1, [0.45945662716, 1]],
+#    [1, [0.190328880056, 1]],
+#    [2, [2.194, 1]],
+#    [2, [0.636, 1]],
+#    [3, [1.522, 1]],
+#]
 
 # %%
 # [11.86094665  5.06935174  8.46099175 10.52933808
