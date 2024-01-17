@@ -15,12 +15,15 @@ def regularized_least_squares(A, y, lamb=0):
         A.T.dot(A) + lamb * np.identity(n_col), A.T.dot(y), rcond=None
     )
 
-def CutOutFar(gridcoords, atomobject, radius): #BUGGED
+def CutOutFar(gridcoords, atomobject, radius): #review
     notFarCoords = []
     for gridpoint in gridcoords:
+        largestDist = 0
         for atompoint in atomobject:
-            if np.linalg.norm(gridpoint - atompoint[1]) < radius:
-                notFarCoords.append(gridpoint)
+            if np.linalg.norm(gridpoint - atompoint[1]) < largestDist:
+                largestDist = np.linalg.norm(gridpoint - atompoint[1])
+        if largestDist < radius:
+            notFarCoods.append(gridpoint)
     return np.asarray(notFarCoords)
 
 class ResponseCalculator:
