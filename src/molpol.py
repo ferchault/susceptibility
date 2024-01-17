@@ -15,7 +15,7 @@ def regularized_least_squares(A, y, lamb=0):
         A.T.dot(A) + lamb * np.identity(n_col), A.T.dot(y), rcond=None
     )
 
-def CutOutFar(gridcoords, atomobject, radius):
+def CutOutFar(gridcoords, atomobject, radius): #BUGGED
     notFarCoords = []
     for gridpoint in gridcoords:
         for atompoint in atomobject:
